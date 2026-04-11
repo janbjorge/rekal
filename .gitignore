@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+sdist/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+
+# uv — lockfile is tracked for reproducible CI
+# uv.lock
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Type checkers
+.ty_cache/
+.mypy_cache/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# rekal database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated version file
+rekal/_version.py
+
+# Claude Code
+.claude/
+
+# Environment
+.env
+.env.*
