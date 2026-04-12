@@ -2,7 +2,7 @@
 
 Long-term memory for LLMs, as an [MCP](https://modelcontextprotocol.io) server.
 
-Every conversation starts from scratch — your LLM forgets what you told it yesterday. rekal is a small MCP server that stores memories in a single SQLite file and retrieves them with hybrid search. Install it, point your MCP client at it, and your LLM starts remembering things between sessions.
+Every conversation starts from scratch. Your LLM forgets what you told it yesterday. rekal is a small MCP server that stores memories in a single SQLite file and retrieves them with hybrid search. Install it, point your MCP client at it, and your LLM starts remembering things between sessions.
 
 ```bash
 pip install rekal
@@ -24,9 +24,9 @@ score = 0.4 · BM25(keyword match)
       + 0.2 · exp(-t/half_life)
 ```
 
-So a memory about "deploying the auth service to staging" shows up whether you search for "deploy auth" or ask about "shipping the login system to pre-prod". Recent memories rank higher, but old ones still surface if they're relevant.
+A memory about "deploying the auth service to staging" shows up whether you search for "deploy auth" or ask about "shipping the login system to pre-prod". Recent memories rank higher, but old ones still surface if they're relevant.
 
-Embeddings run locally with [fastembed](https://github.com/qdrant/fastembed) — no API keys, no network calls.
+Embeddings run locally with [fastembed](https://github.com/qdrant/fastembed). No API keys, no network calls.
 
 ## Quick start
 
@@ -42,7 +42,7 @@ Add to your MCP client config (Claude Desktop, Cursor, Claude Code, etc.):
 }
 ```
 
-rekal creates `~/.rekal/memory.db` on first run. That file is your entire memory — portable, backupable, yours.
+rekal creates `~/.rekal/memory.db` on first run. That file is your entire memory. Portable, backupable, yours.
 
 Requires Python 3.14+.
 
@@ -63,7 +63,7 @@ LLM:  → memory_search("formatting linting preferences")
       ← "User prefers Ruff over Black" (score: 0.92)
 ```
 
-When knowledge changes, it doesn't just pile up — old versions stay linked:
+When knowledge changes, old versions stay linked instead of piling up:
 
 ```
 LLM: → memory_supersede(old_id="mem_abc", new_content="API moved from v2 to v3")
@@ -85,7 +85,7 @@ rekal exposes 16 tools over MCP.
 | Tool | Description |
 |------|-------------|
 | `memory_store` | Store a memory with type, project, tags, and conversation scope |
-| `memory_search` | Hybrid search — BM25 + vector + recency in one query |
+| `memory_search` | Hybrid search: BM25 + vector + recency in one query |
 | `memory_update` | Update content, tags, or type (re-embeds automatically) |
 | `memory_delete` | Delete a memory by ID |
 
@@ -93,7 +93,7 @@ rekal exposes 16 tools over MCP.
 
 | Tool | Description |
 |------|-------------|
-| `memory_supersede` | Replace a memory while preserving the old one as history |
+| `memory_supersede` | Replace a memory while keeping the old one as history |
 | `memory_link` | Link memories: `supersedes`, `contradicts`, `related_to` |
 | `memory_build_context` | Relevant memories + conflicts + timeline for a query, in one call |
 
@@ -105,7 +105,7 @@ rekal exposes 16 tools over MCP.
 | `memory_topics` | Topic summary grouped by type |
 | `memory_timeline` | Chronological view with optional date range filters |
 | `memory_related` | All links to and from a memory |
-| `memory_health` | Database stats — counts by type, project, date range |
+| `memory_health` | Database stats: counts by type, project, date range |
 | `memory_conflicts` | Find memories that contradict each other |
 
 ### Conversations
@@ -127,7 +127,7 @@ Memories are tagged with a type so search can be scoped:
 | `preference` | How the user likes things | "Prefers dataclasses over hand-written \_\_init\_\_" |
 | `procedure` | Steps to do something | "Deploy: git tag vX.Y.Z && git push --tags" |
 | `context` | What's going on right now | "Currently rewriting the payment service" |
-| `episode` | Things that happened | "Debugged the OOM — root cause was unbounded cache" |
+| `episode` | Things that happened | "Debugged the OOM, root cause was unbounded cache" |
 
 ## Architecture
 
@@ -142,7 +142,7 @@ rekal
            └── memory links ── supersedes / contradicts / related_to
 ```
 
-Conversations form a DAG — follow-ups, branches, merges — so you can navigate interaction history the way you'd navigate a Git log.
+Conversations form a DAG (follow-ups, branches, merges) so you can navigate interaction history the way you'd navigate a Git log.
 
 ## Claude Code skills
 
@@ -151,7 +151,7 @@ rekal ships two optional [Claude Code skills](https://code.claude.com/docs/en/sk
 | Skill | Trigger | What it does |
 |-------|---------|-------------|
 | `rekal-save` | Auto on session end, or `/rekal-save` | Extracts durable knowledge from the conversation, deduplicates against existing memories, stores or supersedes |
-| `rekal-hygiene` | `/rekal-hygiene` (manual only) | Finds conflicts, duplicates, stale data, and quality issues. Proposes fixes for your approval — never auto-deletes |
+| `rekal-hygiene` | `/rekal-hygiene` (manual only) | Finds conflicts, duplicates, stale data, and quality issues. Proposes fixes for your approval, never auto-deletes |
 
 ### Install the skills plugin
 
