@@ -144,6 +144,25 @@ rekal
 
 Conversations form a DAG — follow-ups, branches, merges — so you can navigate interaction history the way you'd navigate a Git log.
 
+## Claude Code skills
+
+rekal ships two optional [Claude Code skills](https://code.claude.com/docs/en/skills.md) that improve how your LLM uses its memory:
+
+| Skill | Trigger | What it does |
+|-------|---------|-------------|
+| `rekal-save` | Auto on session end, or `/rekal-save` | Extracts durable knowledge from the conversation, deduplicates against existing memories, stores or supersedes |
+| `rekal-hygiene` | `/rekal-hygiene` (manual only) | Finds conflicts, duplicates, stale data, and quality issues. Proposes fixes for your approval — never auto-deletes |
+
+### Install the skills plugin
+
+```bash
+# In Claude Code:
+/plugin marketplace add janbjorge/rekal
+/plugin install rekal-skills@rekal
+```
+
+The skills require rekal to be configured as an MCP server (see [Quick start](#quick-start) above).
+
 ## CLI
 
 ```bash
