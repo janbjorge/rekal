@@ -7,7 +7,7 @@ description: >
   "clean up memories", "memory maintenance", "check memory health", or invokes
   /rekal-hygiene. Run monthly or when conflicts are piling up.
 disable-model-invocation: true
-allowed-tools: mcp__rekal__memory_health mcp__rekal__memory_conflicts mcp__rekal__memory_similar mcp__rekal__memory_search mcp__rekal__memory_topics mcp__rekal__memory_timeline mcp__rekal__memory_related mcp__rekal__memory_supersede mcp__rekal__memory_delete mcp__rekal__memory_update mcp__rekal__memory_link mcp__rekal__memory_set_project mcp__rekal__conversation_stale mcp__rekal__conversation_threads
+allowed-tools: mcp__rekal__memory_health mcp__rekal__memory_conflicts mcp__rekal__memory_search mcp__rekal__memory_topics mcp__rekal__memory_timeline mcp__rekal__memory_supersede mcp__rekal__memory_delete mcp__rekal__memory_update mcp__rekal__memory_link mcp__rekal__memory_set_project mcp__rekal__conversation_stale mcp__rekal__conversation_threads
 ---
 
 # rekal-hygiene — Memory Maintenance
@@ -103,10 +103,6 @@ After approval only:
 - **Skip memories < 24h old.** Fresh memories need time to settle.
 - **Supersede over delete.** Preserves history via links; delete only for worthless entries.
 - **No new memories.** That's `/rekal-save`.
-
-## Frequency
-
-Run monthly or when conflicts accumulate. `/rekal-save` handles per-session dedup.
 
 ## Large databases (500+ memories)
 

@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "rekal-skills",
-      "description": "Session memory capture and periodic memory maintenance for rekal.",
+      "description": "Memory management skills for rekal: session capture with deduplication and periodic maintenance.",
       "source": "./",
       "category": "productivity"
     }

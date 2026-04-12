@@ -1,27 +1,17 @@
 ---
 name: rekal-save
 description: >
-  End-of-session memory capture with deduplication. Reviews the conversation,
-  extracts durable knowledge, checks for duplicates against existing memories,
-  and stores or supersedes as appropriate. Use this skill whenever a session is
-  wrapping up, a task is finishing, or the user says goodbye/thanks/done. Also
-  use it when you notice significant learnings, decisions, or preference
-  discoveries mid-session that would be lost. Make sure to use this skill
-  whenever it seems like the conversation is ending or important knowledge has
-  been established — a deduplicated no-op is better than lost knowledge.
+  End-of-session memory capture with deduplication. Extracts durable knowledge,
+  checks for duplicates, stores or supersedes as appropriate. Use whenever a
+  session wraps up, a task finishes, or the user says goodbye/thanks/done. Also
+  use when significant preferences, decisions, or discoveries emerge mid-session.
+  Make sure to trigger this skill proactively — err on the side of capturing.
 allowed-tools: mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_conflicts mcp__rekal__memory_set_project
 ---
 
 # rekal-save — Session Memory Capture
 
 Save durable knowledge from session into rekal. Goal: user never repeats themselves.
-
-## When to activate
-
-- Session end signals: "thanks", "that's all", "bye", "done", LGTM on final task
-- Major task completes (PR merged, bug fixed, feature shipped)
-- User preference, convention, or decision discovered worth preserving
-- Project-specific facts learned that help future sessions
 
 ## Workflow
 
@@ -118,22 +108,9 @@ memory_supersede(
 )
 ```
 
-**Bad: too transient — skip**
-```
-content: "User is working on fixing a parser bug"
-```
-
-**Bad: duplicate — skip**
-```
-# Existing: "User prefers Ruff for formatting"
-# New:      "The user likes Ruff better than Black"
-# Same knowledge, different words. Don't store.
-```
-
 ## Boundaries
 
 - Stores memories only. No reorganization or cleanup (that's `/rekal-hygiene`)
 - No conversation creation — captures knowledge from conversations
-- No copying CLAUDE.md/AGENTS.md into memory — already available every session
 - Never stores secrets, API keys, passwords, tokens
 - Asks user before storing sensitive or personal content

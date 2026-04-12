@@ -1,6 +1,6 @@
 {
   "name": "rekal-skills",
-  "description": "Memory management skills for rekal. Includes rekal-save (session memory capture with deduplication) and rekal-hygiene (periodic maintenance and cleanup).",
+  "description": "Memory management skills for rekal: session capture with deduplication (rekal-save) and periodic maintenance (rekal-hygiene).",
   "author": {
     "name": "Jan Bjorge",
     "url": "https://github.com/janbjorge"
