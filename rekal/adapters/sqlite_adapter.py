@@ -233,20 +233,23 @@ class SqliteDatabase:
                 vec_rows[row["id"]] = row["distance"]
 
         # FTS search — get candidate IDs + BM25 scores
+        # Quote each token so FTS5 special chars (., -, :, etc.) don't cause syntax errors
+        fts_query = " ".join(f'"{token}"' for token in query.split() if token)
         fts_rows: dict[str, float] = {}
-        async with self.db.execute(
-            """
-            SELECT m.id, memories_fts.rank AS fts_rank
-            FROM memories_fts
-            JOIN memories m ON m.rowid = memories_fts.rowid
-            WHERE memories_fts MATCH ?
-            ORDER BY memories_fts.rank
-            LIMIT ?
-            """,
-            (query, limit * 3),
-        ) as cursor:
-            async for row in cursor:
-                fts_rows[row["id"]] = row["fts_rank"]
+        if fts_query:
+            async with self.db.execute(
+                """
+                SELECT m.id, memories_fts.rank AS fts_rank
+                FROM memories_fts
+                JOIN memories m ON m.rowid = memories_fts.rowid
+                WHERE memories_fts MATCH ?
+                ORDER BY memories_fts.rank
+                LIMIT ?
+                """,
+                (fts_query, limit * 3),
+            ) as cursor:
+                async for row in cursor:
+                    fts_rows[row["id"]] = row["fts_rank"]
 
         # Merge candidates and fetch full rows — filter in Python, no dynamic SQL
         candidate_ids = set(vec_rows.keys()) | set(fts_rows.keys())
