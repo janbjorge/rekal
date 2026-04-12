@@ -6,7 +6,13 @@ from dataclasses import dataclass
 
 from rekal.adapters.mcp_adapter import AppContext
 from rekal.adapters.sqlite_adapter import SqliteDatabase
-from rekal.adapters.tools.core import memory_delete, memory_search, memory_store, memory_update
+from rekal.adapters.tools.core import (
+    memory_delete,
+    memory_search,
+    memory_set_project,
+    memory_store,
+    memory_update,
+)
 
 
 @dataclass
@@ -54,3 +60,15 @@ async def test_memory_update_tool(db: SqliteDatabase) -> None:
 async def test_memory_update_tool_not_found(db: SqliteDatabase) -> None:
     result = await memory_update(_ctx(db), "nonexistent", content="Nope")
     assert "not found" in result or "no changes" in result
+
+
+async def test_memory_set_project_tool(db: SqliteDatabase) -> None:
+    ctx = _ctx(db)
+    assert ctx.request_context.lifespan_context.default_project is None
+    result = await memory_set_project(ctx, "my-project")
+    assert "my-project" in result
+    assert ctx.request_context.lifespan_context.default_project == "my-project"
+    # Subsequent store should use the default project
+    await memory_store(ctx, "Test with default project")
+    results = await memory_search(ctx, "Test with default project")
+    assert any(r["project"] == "my-project" for r in results)

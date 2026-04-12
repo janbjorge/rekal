@@ -5,7 +5,7 @@ from typing import Annotated
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
-from rekal.adapters.mcp_adapter import mcp
+from rekal.adapters.mcp_adapter import mcp, resolve_project
 
 
 @mcp.tool()
@@ -27,7 +27,7 @@ async def memory_topics(
 ) -> list[dict[str, str | int]]:
     """Get a summary of memory topics (grouped by type)."""
     db = ctx.request_context.lifespan_context.db
-    results = await db.memory_topics(project=project)
+    results = await db.memory_topics(project=resolve_project(ctx, project))
     return [r.model_dump() for r in results]
 
 
@@ -41,7 +41,9 @@ async def memory_timeline(
 ) -> list[dict[str, str | int | float | list[str] | None]]:
     """Get memories ordered by creation time, optionally filtered by date range."""
     db = ctx.request_context.lifespan_context.db
-    results = await db.memory_timeline(project=project, start=start, end=end, limit=limit)
+    results = await db.memory_timeline(
+        project=resolve_project(ctx, project), start=start, end=end, limit=limit
+    )
     return [r.model_dump() for r in results]
 
 
@@ -72,5 +74,5 @@ async def memory_conflicts(
 ) -> list[dict[str, str]]:
     """Find conflicting memories."""
     db = ctx.request_context.lifespan_context.db
-    results = await db.memory_conflicts(project=project)
+    results = await db.memory_conflicts(project=resolve_project(ctx, project))
     return [r.model_dump() for r in results]

@@ -5,7 +5,7 @@ from typing import Annotated
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
-from rekal.adapters.mcp_adapter import mcp
+from rekal.adapters.mcp_adapter import mcp, resolve_project
 
 
 @mcp.tool()
@@ -26,7 +26,7 @@ async def conversation_start(
     db = ctx.request_context.lifespan_context.db
     conv_id = await db.conversation_start(
         title=title,
-        project=project,
+        project=resolve_project(ctx, project),
         follows_up_on=follows_up_on,
         branches_from=branches_from,
     )
@@ -54,7 +54,7 @@ async def conversation_threads(
 ) -> list[dict[str, str | int | None]]:
     """List recent conversations with memory counts."""
     db = ctx.request_context.lifespan_context.db
-    results = await db.conversation_threads(project=project, limit=limit)
+    results = await db.conversation_threads(project=resolve_project(ctx, project), limit=limit)
     return [r.model_dump() for r in results]
 
 

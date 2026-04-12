@@ -5,8 +5,20 @@ from typing import Annotated
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
-from rekal.adapters.mcp_adapter import mcp
+from rekal.adapters.mcp_adapter import mcp, resolve_project
 from rekal.models import MemoryType
+
+
+@mcp.tool()
+async def memory_set_project(
+    ctx: Context,
+    project: Annotated[
+        str, Field(description="Project name to scope all subsequent operations to")
+    ],
+) -> str:
+    """Set the default project for this session. Tools use this unless overridden."""
+    ctx.request_context.lifespan_context.default_project = project
+    return f"Default project set to '{project}'"
 
 
 @mcp.tool()
@@ -27,7 +39,7 @@ async def memory_store(
     memory_id = await db.store(
         content,
         memory_type=memory_type,
-        project=project,
+        project=resolve_project(ctx, project),
         conversation_id=conversation_id,
         tags=tags,
     )
@@ -52,7 +64,7 @@ async def memory_search(
     results = await db.search(
         query,
         limit=limit,
-        project=project,
+        project=resolve_project(ctx, project),
         memory_type=memory_type,
         conversation_id=conversation_id,
     )

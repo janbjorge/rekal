@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.embeddings import FastEmbedder
@@ -24,16 +24,25 @@ def default_db_path() -> str:
 @dataclass
 class AppContext:
     db: SqliteDatabase
+    default_project: str | None = None
+
+
+def resolve_project(ctx: Context, project: str | None) -> str | None:
+    """Return explicit project if given, otherwise fall back to session default."""
+    if project is not None:
+        return project
+    return ctx.request_context.lifespan_context.default_project
 
 
 @asynccontextmanager
 async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
     db_path = os.environ.get("REKAL_DB_PATH", default_db_path())
+    default_project = os.environ.get("REKAL_PROJECT")
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     embed = FastEmbedder()
     db = await SqliteDatabase.create(db_path, embed, dimensions=embed.dimensions)
     try:
-        yield AppContext(db=db)
+        yield AppContext(db=db, default_project=default_project)
     finally:
         await db.close()
 

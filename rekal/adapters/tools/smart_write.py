@@ -5,7 +5,7 @@ from typing import Annotated
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
-from rekal.adapters.mcp_adapter import mcp
+from rekal.adapters.mcp_adapter import mcp, resolve_project
 from rekal.models import MemoryRelation, MemoryType
 
 
@@ -37,7 +37,7 @@ async def memory_supersede(
         old_id,
         new_content,
         memory_type=memory_type,
-        project=project,
+        project=resolve_project(ctx, project),
         conversation_id=conversation_id,
         tags=tags,
     )
@@ -69,5 +69,5 @@ async def memory_build_context(
 ) -> dict[str, str | list[dict[str, str | int | float | list[str] | None]]]:
     """Build rich context for a query: relevant memories + conflicts + timeline."""
     db = ctx.request_context.lifespan_context.db
-    result = await db.build_context(query, project=project, limit=limit)
+    result = await db.build_context(query, project=resolve_project(ctx, project), limit=limit)
     return result.model_dump()
