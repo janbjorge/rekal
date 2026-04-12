@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "rekal",
+  "description": "Memory management skills for rekal — persistent long-term memory for LLMs via MCP.",
+  "owner": {
+    "name": "Jan Bjorge",
+    "url": "https://github.com/janbjorge"
+  },
+  "plugins": [
+    {
+      "name": "rekal-skills",
+      "description": "Session memory capture and periodic memory maintenance for rekal.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
