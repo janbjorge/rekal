@@ -7,7 +7,7 @@ description: >
   rekal on a new project, or when user says "init rekal", "bootstrap memory",
   "populate rekal", "scan project". Trigger: /rekal-init.
 disable-model-invocation: true
-allowed-tools: Read Glob Grep Agent mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_set_project mcp__rekal__memory_health mcp__rekal__memory_conflicts
+allowed-tools: Read Glob Grep mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_set_project mcp__rekal__memory_health mcp__rekal__memory_conflicts
 ---
 
 Bootstrap rekal memory from a codebase. Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves.
@@ -60,8 +60,8 @@ docker-compose.yml, Dockerfile
 ### Tier 3 — Structural exploration (skim, don't read every file)
 
 ```
-# Directory tree — top 2 levels
-fd --type d --max-depth 2
+# Directory tree — top 2 levels via Glob
+Glob pattern: "**/*/", max-depth 2
 
 # Entry points
 main.py, app.py, index.ts, main.go, lib.rs, src/main.*
@@ -104,7 +104,7 @@ it cannot be trivially discovered by reading one file?
 
 ### What NOT to extract
 
-- Anything already in CLAUDE.md or AGENTS.md verbatim — those are loaded every session
+- Verbatim content from CLAUDE.md or AGENTS.md — those are loaded every session. DO synthesize cross-cutting knowledge that spans multiple files into single memories.
 - Line numbers, function signatures, variable names — trivially re-discoverable
 - Boilerplate from templates (default CI configs, standard Dockerfile patterns)
 - Version numbers that change frequently (pin knowledge to concepts, not versions)
@@ -201,7 +201,7 @@ Summarize what was captured:
 
 - **Read-only on the codebase.** Never modify project files.
 - **No secrets.** Skip .env files with real values. Only read .env.example.
-- **No source code analysis.** Extract architecture from docs and config, not by reading every .py/.ts/.rs file. Agents read source on demand.
+- **No deep source code analysis.** Extract architecture from docs, config, and entry points — not by reading every .py/.ts/.rs file. Agents read source on demand.
 - **Dedup is mandatory.** Never skip the search-before-store step.
 - **Ask before overwriting.** If existing memories conflict with what the codebase says, present both and ask which is correct.
 - **This skill populates. `/rekal-save` maintains.** Don't try to capture everything — init covers the 80% that prevents users from repeating themselves. Session-level learning happens via `/rekal-save`.
