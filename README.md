@@ -1,10 +1,43 @@
 # rekal
 
-Long-term memory for LLMs. One SQLite file, no cloud, no API keys.
+**Long-term memory for LLMs. One SQLite file, no cloud, no API keys.**
 
-You tell your LLM you prefer Ruff, that deploys go through tags, that the auth service lives in `services/auth`. Next conversation, blank slate. You repeat yourself. Again. Forever.
+You tell your LLM you prefer Ruff, that deploys go through tags, that the auth service lives in `services/auth`. Next conversation — blank slate. You repeat yourself. Again. Forever.
 
-rekal is an [MCP](https://modelcontextprotocol.io) server that gives LLMs persistent memory. It stores what matters and retrieves it later using hybrid search (BM25 keywords + vector similarity + recency decay). Embeddings run locally via [fastembed](https://github.com/qdrant/fastembed). Nothing leaves your machine.
+rekal fixes this. It's an [MCP](https://modelcontextprotocol.io) server that gives any LLM persistent memory across sessions. Memories are stored locally and retrieved with hybrid search (keywords + semantics + recency). Nothing leaves your machine.
+
+## What it looks like
+
+**Session 1** — you mention a preference:
+
+```
+You:  "I prefer Ruff over Black for formatting"
+LLM:  → memory_store("User prefers Ruff over Black", type="preference")
+```
+
+**Session 47** — different day, different conversation:
+
+```
+You:  "Set up linting for my new project"
+LLM:  → memory_search("formatting linting preferences")
+      ← "User prefers Ruff over Black" (score: 0.92)
+      Sets up Ruff without asking.
+```
+
+**When facts change**, old versions stay linked — not silently overwritten:
+
+```
+LLM:  → memory_supersede(old_id, "API moved from v2 to v3")
+```
+
+**When things contradict**:
+
+```
+LLM:  → memory_conflicts(project="backend")
+      ← "use PostgreSQL for everything" contradicts "migrate analytics to ClickHouse"
+```
+
+## Install
 
 ```bash
 pip install rekal
@@ -18,23 +51,41 @@ uv tool install rekal
 
 Requires Python 3.11+.
 
-## Setup
+## Setup — pick your client
 
-### 1. Install and add the MCP server
+rekal works two ways: as an **MCP server** (16 memory tools, works with any client) and as a **Claude Code plugin** (adds skills for automated memory management on top of the MCP server).
 
-```bash
-pip install rekal
-# or
-uv tool install rekal
-```
+On first run, rekal creates `~/.rekal/memory.db` — a single file that holds everything. Copy it to back up, delete it to start fresh.
 
-Then add rekal to your MCP client:
+### Claude Code
+
+MCP server + plugin with skills — the full experience:
 
 ```bash
+# MCP server (memory tools)
 claude mcp add rekal -- rekal
 ```
 
-For other MCP clients, add to your config JSON:
+Then inside Claude Code, install the plugin for automated memory management:
+
+```
+/plugin marketplace add janbjorge/rekal
+/plugin install rekal-skills@rekal
+```
+
+| Skill | Trigger | What it does |
+|-------|---------|-------------|
+| `rekal-init` | `/rekal-init` | Scans your codebase and bootstraps rekal with project knowledge |
+| `rekal-save` | Auto on session end | Reviews the conversation, deduplicates, stores what's worth keeping |
+| `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
+| `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
+
+### All other clients
+
+<details>
+<summary><strong>Claude Desktop</strong></summary>
+
+Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -46,73 +97,158 @@ For other MCP clients, add to your config JSON:
 }
 ```
 
-On first run, rekal creates `~/.rekal/memory.db`. That single file holds everything. Copy it to back up, drop it to start fresh.
+</details>
 
-### 2. (Optional) Claude Code skills
+<details>
+<summary><strong>Cursor</strong></summary>
 
-If you use [Claude Code](https://code.claude.com), rekal ships as a plugin with three skills for memory management. The plugin talks to the MCP server from step 1, so install that first.
+Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
+
+```json
+{
+  "mcpServers": {
+    "rekal": {
+      "command": "rekal"
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>VS Code / GitHub Copilot</strong></summary>
+
+Add to `.vscode/mcp.json` (workspace) or run **MCP: Open User Configuration** for global:
+
+```json
+{
+  "servers": {
+    "rekal": {
+      "type": "stdio",
+      "command": "rekal"
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Windsurf</strong></summary>
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "rekal": {
+      "command": "rekal"
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Zed</strong></summary>
+
+Add to `~/.config/zed/settings.json`:
+
+```json
+{
+  "context_servers": {
+    "rekal": {
+      "command": "rekal"
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Cline</strong></summary>
+
+Open Cline settings, click **MCP Servers → Configure**, and add:
+
+```json
+{
+  "mcpServers": {
+    "rekal": {
+      "command": "rekal"
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Gemini CLI</strong></summary>
+
+Add to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "rekal": {
+      "command": "rekal"
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Amazon Q CLI</strong></summary>
 
 ```bash
-/plugin marketplace add janbjorge/rekal
-/plugin install rekal-skills@rekal
+q mcp add rekal -- rekal
 ```
 
-| Skill | Trigger | What it does |
-|-------|---------|-------------|
-| `rekal-init` | `/rekal-init`, or "bootstrap memory" | Scans your codebase and bootstraps rekal with project knowledge |
-| `rekal-usage` | `/rekal-usage`, or "how do I use rekal" | Tool reference, query patterns, and workflows — teaches agents how to use rekal effectively |
-| `rekal-save` | Auto on session end, or `/rekal-save` | Reviews the conversation, deduplicates against existing memories, stores what's worth keeping |
-| `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, and stale data. Proposes fixes for your approval, never deletes on its own |
+</details>
 
-## How it works
+<details>
+<summary><strong>Any other MCP client</strong></summary>
 
-Your LLM stores things worth remembering:
+rekal is a standard stdio MCP server. Point your client at the `rekal` command — no args, no env vars needed.
 
-```
-User: "I prefer Ruff over Black for formatting"
-LLM:  → memory_store("User prefers Ruff over Black", type="preference")
-```
-
-Weeks later, different conversation:
-
-```
-User: "Set up linting for my new project"
-LLM:  → memory_search("formatting linting preferences")
-      ← "User prefers Ruff over Black" (score: 0.92)
+```json
+{
+  "mcpServers": {
+    "rekal": {
+      "command": "rekal"
+    }
+  }
+}
 ```
 
-When facts change, old versions stay linked:
+</details>
 
-```
-LLM: → memory_supersede(old_id="mem_abc", new_content="API moved from v2 to v3")
-```
-
-When things contradict each other:
-
-```
-LLM: → memory_conflicts(project="backend")
-     ← "use PostgreSQL for everything" contradicts "migrate analytics to ClickHouse"
-```
-
-## Search
+## How search works
 
 Three signals, blended into one score:
 
 ```
-score = 0.4 · BM25(keyword match)
-      + 0.4 · cosine(semantic similarity)
-      + 0.2 · exp(-t/half_life)
+score = 0.4 * BM25(keyword match)
+      + 0.4 * cosine(semantic similarity)
+      + 0.2 * exp(-t / half_life)
 ```
 
-"deploy auth" and "shipping the login system to pre-prod" both find the same memory. Recent stuff ranks higher, but old memories still surface when relevant.
+- **Keywords** — "deploy auth" matches "deploy auth"
+- **Semantics** — "shipping the login system to pre-prod" also matches "deploy auth"
+- **Recency** — recent stuff ranks higher, but old memories still surface when relevant
 
-## Tools
+Embeddings run locally via [fastembed](https://github.com/qdrant/fastembed) (ONNX). No API calls, no network, no latency.
 
-16 tools over MCP:
+## 16 MCP tools
 
 ### Core
 
-| Tool | Description |
+| Tool | What it does |
 |------|-------------|
 | `memory_store` | Store a memory with type, project, tags, and conversation scope |
 | `memory_search` | Hybrid search: BM25 + vector + recency in one query |
@@ -121,26 +257,26 @@ score = 0.4 · BM25(keyword match)
 
 ### Smart write
 
-| Tool | Description |
+| Tool | What it does |
 |------|-------------|
-| `memory_supersede` | Replace a memory while keeping the old one as history |
+| `memory_supersede` | Replace a memory while keeping the old one linked as history |
 | `memory_link` | Link memories: `supersedes`, `contradicts`, `related_to` |
-| `memory_build_context` | Relevant memories + conflicts + timeline for a query, in one call |
+| `memory_build_context` | Relevant memories + conflicts + timeline in one call |
 
 ### Introspection
 
-| Tool | Description |
+| Tool | What it does |
 |------|-------------|
 | `memory_similar` | Find memories similar to a given one |
 | `memory_topics` | Topic summary grouped by type |
-| `memory_timeline` | Chronological view with optional date range filters |
+| `memory_timeline` | Chronological view with optional date range |
 | `memory_related` | All links to and from a memory |
 | `memory_health` | Database stats: counts by type, project, date range |
 | `memory_conflicts` | Find memories that contradict each other |
 
 ### Conversations
 
-| Tool | Description |
+| Tool | What it does |
 |------|-------------|
 | `conversation_start` | Start a conversation, optionally linked to a previous one |
 | `conversation_tree` | Get the full conversation DAG |
@@ -155,11 +291,11 @@ score = 0.4 · BM25(keyword match)
 | `preference` | How you like things | "Prefers dataclasses over hand-written \_\_init\_\_" |
 | `procedure` | Steps to do something | "Deploy: git tag vX.Y.Z && git push --tags" |
 | `context` | Current state | "Currently rewriting the payment service" |
-| `episode` | Things that happened | "Debugged the OOM, root cause was unbounded cache" |
+| `episode` | Things that happened | "Debugged the OOM — root cause was unbounded cache" |
 
 ## Architecture
 
-One SQLite file, four components:
+Everything lives in one SQLite file. Four subsystems:
 
 ```
 rekal
@@ -170,7 +306,9 @@ rekal
            └── memory links ── supersedes / contradicts / related_to
 ```
 
-Conversations form a DAG (follow-ups, branches, merges), navigable like a git log.
+No external services. No background processes. No config files. Just `rekal` and a `.db` file.
+
+Conversations form a DAG (follow-ups, branches, merges) — navigable like a git log.
 
 ## CLI
 
@@ -179,6 +317,16 @@ rekal serve    # Run as MCP server (default)
 rekal health   # Database health report
 rekal export   # Export all memories as JSON
 ```
+
+## Why rekal?
+
+| | rekal | Cloud memory services |
+|---|---|---|
+| **Privacy** | Everything local. Nothing leaves your machine | Data sent to third-party servers |
+| **Cost** | Free forever | Per-query or subscription pricing |
+| **Speed** | Sub-millisecond SQLite queries | Network round-trips |
+| **Portability** | One `.db` file. Copy, back up, version control | Vendor lock-in |
+| **Dependencies** | `pip install` and go | API keys, accounts, config |
 
 ## License
 
