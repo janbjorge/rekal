@@ -94,17 +94,57 @@ rekal exposes 16 MCP tools grouped into four categories.
 | `conversation_threads` | List recent conversations with memory counts |
 | `conversation_stale` | Find inactive conversations |
 
-## How search works
+## How it works
 
-Three signals, blended into one score:
+### Storage
+
+Everything lives in a single SQLite file (`~/.rekal/memory.db`). Three subsystems share it:
+
+- **memories table** — content, type, project, tags, timestamps, access counts
+- **FTS5 virtual table** — full-text index over content+tags+project, auto-synced via triggers on insert/update/delete
+- **sqlite-vec virtual table** — 384-dimensional vector index for semantic search
+
+When you store a memory, rekal writes the row, updates the FTS5 index (automatically), and inserts a vector embedding. When you update content, it re-embeds automatically.
+
+Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_supersede` writes the new memory and creates a `supersedes` link to the old one in a single operation — old knowledge stays queryable but the link makes the lineage explicit.
+
+### Embeddings
+
+rekal uses [fastembed](https://github.com/qdrant/fastembed) with the `BAAI/bge-small-en-v1.5` model (384 dimensions). It runs locally via ONNX — no API calls, no network, no tokens billed. The model is downloaded once on first use (~50MB) and cached.
+
+Vectors are stored as packed floats in sqlite-vec and queried with approximate nearest-neighbor search.
+
+### Search
+
+Every `memory_search` runs two parallel lookups, merges candidates, then scores them:
 
 ```
-score = 0.4 * BM25(keyword match)
-      + 0.4 * cosine(semantic similarity)
-      + 0.2 * exp(-t / half_life)
+1. Vector search   → top 3×limit candidates by cosine distance
+2. FTS5 search     → top 3×limit candidates by BM25 rank
+3. Union the candidate sets
+4. For each candidate, compute:
+
+   score = 0.4 × sigmoid(-BM25)        ← keyword relevance
+         + 0.4 × (1 - cosine_distance)  ← semantic similarity
+         + 0.2 × exp(-0.693 × days/30)  ← recency (30-day half-life)
+
+5. Sort by score, return top limit
 ```
 
-Embeddings run locally via [fastembed](https://github.com/qdrant/fastembed) (ONNX). No API calls, no network.
+**Why three signals?** Keywords alone miss synonyms ("deploy" vs "ship to prod"). Vectors alone miss exact identifiers (`BAAI/bge-small-en-v1.5` needs exact match). Recency alone buries important old knowledge. The blend covers all three failure modes.
+
+**Why 0.4/0.4/0.2?** Keywords and semantics contribute equally — neither dominates. Recency is a tiebreaker at 0.2: a one-day-old memory scores ~0.195, a 90-day-old memory still scores ~0.025. Old memories surface when keyword or semantic match is strong enough.
+
+**Why over-fetch 3x?** Filtering by project/type/conversation happens after scoring (no dynamic SQL injection). Over-fetching ensures enough candidates survive filtering to fill the requested limit.
+
+### Why SQLite?
+
+- **Single file** — copy it, back it up, version-control it, delete it to start fresh
+- **Zero config** — no daemon, no port, no connection string
+- **FTS5 built-in** — BM25 ranking with no external search engine
+- **sqlite-vec extension** — vector search in the same process, no separate vector DB
+- **Sub-millisecond** — everything is local disk I/O, no network round-trips
+- **Portable** — works on macOS, Linux, Windows without different backends
 
 ## CLI
 
