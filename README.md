@@ -10,6 +10,12 @@ rekal is an [MCP](https://modelcontextprotocol.io) server that gives LLMs persis
 pip install rekal
 ```
 
+or with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install rekal
+```
+
 Requires Python 3.11+.
 
 ## Setup
@@ -18,6 +24,8 @@ Requires Python 3.11+.
 
 ```bash
 pip install rekal
+# or
+uv tool install rekal
 ```
 
 Then add rekal to your MCP client:
