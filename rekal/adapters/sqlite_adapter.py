@@ -117,7 +117,7 @@ def parse_tags(tags: str | None) -> list[str]:
         return []
     try:
         return json.loads(tags)
-    except json.JSONDecodeError, TypeError:  # pragma: no cover
+    except (json.JSONDecodeError, TypeError):  # pragma: no cover
         return []
 
 
@@ -142,7 +142,7 @@ def parse_days_since(timestamp: str, fallback: int) -> int:
     try:
         dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         return (datetime.now(UTC) - dt.replace(tzinfo=UTC)).days
-    except ValueError, TypeError:  # pragma: no cover
+    except (ValueError, TypeError):  # pragma: no cover
         return fallback
 
 
