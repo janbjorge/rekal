@@ -2,7 +2,7 @@
 
 **Long-term memory for LLMs. One SQLite file, no cloud, no API keys.**
 
-rekal is an [MCP](https://modelcontextprotocol.io) server that gives any LLM persistent memory across sessions. Memories are stored locally in SQLite and retrieved with hybrid search (BM25 keywords + vector semantics + recency decay). Nothing leaves your machine.
+rekal is an [MCP](https://modelcontextprotocol.io) server that gives Claude Code persistent memory across sessions. Memories are stored locally in SQLite and retrieved with hybrid search (BM25 keywords + vector semantics + recency decay). Nothing leaves your machine.
 
 ```
 Session 1:   "I prefer Ruff over Black"  → memory_store(...)
@@ -27,21 +27,24 @@ Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db` — a si
 
 ## Setup
 
-rekal is a stdio MCP server. Every client needs the same thing: point it at the `rekal` command.
+Two steps: add the MCP server, then install the skills plugin.
 
-<details>
-<summary><strong>Claude Code</strong></summary>
+**1. Add the MCP server** — gives Claude Code the memory tools:
 
 ```bash
 claude mcp add rekal -- rekal
 ```
 
-Claude Code also supports a skills plugin for automated memory management (session capture, deduplication, hygiene). After adding the MCP server:
+**2. Install the skills plugin** — teaches Claude Code when and how to use those tools:
 
 ```
 /plugin marketplace add janbjorge/rekal
 /plugin install rekal-skills@rekal
 ```
+
+The MCP server provides the tools. The skills drive the behavior — session capture, deduplication, hygiene. Both are required.
+
+### Skills
 
 | Skill | Trigger | What it does |
 |-------|---------|-------------|
@@ -49,154 +52,6 @@ Claude Code also supports a skills plugin for automated memory management (sessi
 | `rekal-save` | Auto on session end | Deduplicates and stores durable knowledge from the conversation |
 | `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
-
-</details>
-
-<details>
-<summary><strong>Claude Desktop</strong></summary>
-
-Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Cursor</strong></summary>
-
-Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>VS Code / GitHub Copilot</strong></summary>
-
-Add to `.vscode/mcp.json` (workspace) or run **MCP: Open User Configuration** for global:
-
-```json
-{
-  "servers": {
-    "rekal": {
-      "type": "stdio",
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Windsurf</strong></summary>
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Zed</strong></summary>
-
-Add to `~/.config/zed/settings.json`:
-
-```json
-{
-  "context_servers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Cline</strong></summary>
-
-Open Cline settings, click **MCP Servers → Configure**, and add:
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Gemini CLI</strong></summary>
-
-Add to `~/.gemini/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Amazon Q CLI</strong></summary>
-
-```bash
-q mcp add rekal -- rekal
-```
-
-</details>
-
-<details>
-<summary><strong>Any other MCP client</strong></summary>
-
-Point your client at the `rekal` command — no args, no env vars needed.
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
 
 ## Tools
 
