@@ -62,6 +62,13 @@ async def test_memory_update_tool_not_found(db: SqliteDatabase) -> None:
     assert "not found" in result or "no changes" in result
 
 
+async def test_memory_search_tool_custom_weights(db: SqliteDatabase) -> None:
+    await memory_store(_ctx(db), "Weight test content about databases")
+    results = await memory_search(_ctx(db), "databases", w_fts=0.8, w_vec=0.1, w_recency=0.1)
+    assert isinstance(results, list)
+    assert len(results) > 0
+
+
 async def test_memory_set_project_tool(db: SqliteDatabase) -> None:
     ctx = _ctx(db)
     assert ctx.request_context.lifespan_context.default_project is None

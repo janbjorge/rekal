@@ -58,6 +58,20 @@ async def memory_search(
     conversation_id: Annotated[
         str | None, Field(description="Filter results to this conversation")
     ] = None,
+    w_fts: Annotated[
+        float, Field(description="Weight for keyword (BM25) relevance, 0.0-1.0")
+    ] = 0.4,
+    w_vec: Annotated[
+        float, Field(description="Weight for semantic (vector) similarity, 0.0-1.0")
+    ] = 0.4,
+    w_recency: Annotated[float, Field(description="Weight for recency decay, 0.0-1.0")] = 0.2,
+    half_life: Annotated[
+        float,
+        Field(
+            description="Recency half-life in days. "
+            "Memories lose half their recency score after this many days"
+        ),
+    ] = 30.0,
 ) -> list[dict[str, str | int | float | list[str] | None]]:
     """Search memories using hybrid FTS + vector + recency scoring."""
     db = ctx.request_context.lifespan_context.db
@@ -67,6 +81,10 @@ async def memory_search(
         project=resolve_project(ctx, project),
         memory_type=memory_type,
         conversation_id=conversation_id,
+        w_fts=w_fts,
+        w_vec=w_vec,
+        w_recency=w_recency,
+        half_life=half_life,
     )
     return [r.model_dump() for r in results]
 

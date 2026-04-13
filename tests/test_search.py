@@ -70,3 +70,25 @@ async def test_search_scores_present(db: SqliteDatabase) -> None:
     for r in results:
         assert r.score is not None
         assert r.score > 0
+
+
+async def test_search_custom_weights(db: SqliteDatabase) -> None:
+    await db.store("Custom weight test memory")
+    r1 = await db.search("custom weight test", w_fts=0.8, w_vec=0.1, w_recency=0.1)
+    r2 = await db.search("custom weight test", w_fts=0.1, w_vec=0.8, w_recency=0.1)
+    assert len(r1) > 0
+    assert len(r2) > 0
+    # Different weights should produce different scores
+    assert r1[0].score != r2[0].score
+
+
+async def test_search_custom_half_life(db: SqliteDatabase) -> None:
+    await db.store("Half life test memory")
+    r_short = await db.search("half life test", half_life=1.0)
+    r_long = await db.search("half life test", half_life=365.0)
+    assert len(r_short) > 0
+    assert len(r_long) > 0
+    # Longer half-life = higher recency component = higher total score
+    assert r_long[0].score is not None
+    assert r_short[0].score is not None
+    assert r_long[0].score >= r_short[0].score

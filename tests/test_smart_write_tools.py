@@ -41,3 +41,12 @@ async def test_memory_build_context_tool(db: SqliteDatabase) -> None:
     result = await memory_build_context(_ctx(db), "Python")
     assert "query" in result
     assert "memories" in result
+
+
+async def test_memory_build_context_tool_custom_weights(db: SqliteDatabase) -> None:
+    await db.store("Weighted context about Rust")
+    result = await memory_build_context(
+        _ctx(db), "Rust", w_fts=0.1, w_vec=0.1, w_recency=0.8, half_life=7.0
+    )
+    assert "query" in result
+    assert "memories" in result
