@@ -41,5 +41,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          cache-suffix: py${{ matrix.python-version }}
       - run: uv sync --frozen --python ${{ matrix.python-version }}
       - run: uv run pytest --cov=rekal --cov-report=term-missing --cov-fail-under=100 tests/
