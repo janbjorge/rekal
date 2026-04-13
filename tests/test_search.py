@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 
 
