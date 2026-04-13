@@ -15,6 +15,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          prune-cache: false
       - run: uv sync --frozen
       - run: uv run ruff check rekal/ tests/
       - run: uv run ruff format --check rekal/ tests/
@@ -26,6 +27,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          prune-cache: false
       - run: uv sync --frozen
       - run: uv run ty check rekal/ tests/
 
@@ -41,6 +43,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          prune-cache: false
           cache-suffix: py${{ matrix.python-version }}
       - run: uv sync --frozen --python ${{ matrix.python-version }}
       - run: uv run pytest --cov=rekal --cov-report=term-missing --cov-fail-under=100 tests/
