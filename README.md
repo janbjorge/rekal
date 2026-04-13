@@ -37,9 +37,9 @@ claude mcp add rekal -- rekal
 
 **2. Install the skills plugin** — teaches Claude Code when and how to use those tools:
 
-```
-/plugin marketplace add janbjorge/rekal
-/plugin install rekal-skills@rekal
+```bash
+claude plugin marketplace add janbjorge/rekal
+claude plugin install rekal-skills@rekal
 ```
 
 The MCP server provides the tools. The skills drive the behavior — session capture, deduplication, hygiene. Both are required.
