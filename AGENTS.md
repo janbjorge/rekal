@@ -4,7 +4,7 @@
 
 rekal is a Model Context Protocol (MCP) server that gives LLMs persistent long-term memory.
 It uses hybrid search (FTS5 + vector + recency) in a single SQLite file.
-Python 3.14+, installed via `pip install rekal`, runs as a stdio MCP server.
+Python 3.11+, installed via `pip install rekal`, runs as a stdio MCP server.
 
 ## Architecture
 
@@ -157,8 +157,8 @@ pytest --cov=rekal --cov-report=term-missing --cov-fail-under=100 tests/
 
 ## Tooling config
 
-- **ruff** — lint + format, line-length 99, target py314
-- **ty** — type checker, python-version 3.14
+- **ruff** — lint + format, line-length 99, target py311
+- **ty** — type checker, python-version 3.11
 - **pytest** — asyncio_mode auto, 100% coverage required
 
 ## Dependencies
