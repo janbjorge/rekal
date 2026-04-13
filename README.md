@@ -20,7 +20,13 @@ Requires Python 3.11+.
 pip install rekal
 ```
 
-Then add rekal to your MCP client config (Claude Desktop, Cursor, Claude Code, etc.):
+Then add rekal to your MCP client:
+
+```bash
+claude mcp add rekal -- rekal
+```
+
+For other MCP clients, add to your config JSON:
 
 ```json
 {
