@@ -50,7 +50,7 @@ On first run, rekal creates `~/.rekal/memory.db`. That single file holds everyth
 
 ### 2. (Optional) Claude Code skills
 
-If you use [Claude Code](https://code.claude.com), rekal ships as a plugin with two skills for automated memory management. The plugin talks to the MCP server from step 1, so install that first.
+If you use [Claude Code](https://code.claude.com), rekal ships as a plugin with three skills for memory management. The plugin talks to the MCP server from step 1, so install that first.
 
 ```bash
 /plugin marketplace add janbjorge/rekal
@@ -59,6 +59,7 @@ If you use [Claude Code](https://code.claude.com), rekal ships as a plugin with 
 
 | Skill | Trigger | What it does |
 |-------|---------|-------------|
+| `rekal-usage` | `/rekal-usage`, or "how do I use rekal" | Tool reference, query patterns, and workflows — teaches agents how to use rekal effectively |
 | `rekal-save` | Auto on session end, or `/rekal-save` | Reviews the conversation, deduplicates against existing memories, stores what's worth keeping |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, and stale data. Proposes fixes for your approval, never deletes on its own |
 

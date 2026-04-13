@@ -9,108 +9,140 @@ description: >
 allowed-tools: mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_conflicts mcp__rekal__memory_set_project
 ---
 
-# rekal-save — Session Memory Capture
+Save durable knowledge from this session into rekal. Goal: user never repeats themselves across sessions.
 
-Save durable knowledge from session into rekal. Goal: user never repeats themselves.
+## Step 1: Extract candidates
 
-## Workflow
+Review the conversation. Per item, apply this filter:
 
-### Step 1: Extract candidates
+```
+Would a fresh agent in a new session benefit from knowing this?
+├── YES → candidate
+└── NO  → skip
+```
 
-Review conversation, identify memories worth keeping. Filter: "Would fresh Claude session benefit from this?"
+**Candidate types:**
 
-**Store:**
-- Preferences/opinions ("prefers dataclasses over hand-written __init__")
-- Project conventions/architecture ("auth service uses JWT, lives in services/auth")
-- Decisions + reasoning ("chose PostgreSQL over MySQL for JSONB support")
-- Procedures ("deploy: git tag, push tags, wait for CI, merge")
-- Bugs with non-obvious root causes ("OOM from unbounded LRU cache in parser")
-- Behavior corrections ("don't use grep, use rg")
+| What | Example |
+|------|---------|
+| Preference with reasoning | `"User prefers dataclasses over hand-written __init__ for less boilerplate"` |
+| Architecture/convention | `"Auth service uses JWT, lives in services/auth, 15-min token expiry"` |
+| Decision + why | `"Chose PostgreSQL over MySQL for JSONB support and better partial indexes"` |
+| Procedure | `"Deploy: 1) git tag vX.Y.Z 2) git push --tags 3) wait CI 4) merge to main"` |
+| Bug with non-obvious cause | `"OOM from unbounded LRU cache in parser — fixed with maxsize=1000"` |
+| Behavior correction | `"Never use grep/find. Use rg/fd. Strict, no exceptions."` |
 
-**Skip:**
-- Transient state: "currently editing main.py", "running tests now"
-- Trivially re-discoverable: "function foo is on line 42"
+**Skip — do not store:**
+
+- Transient state: "currently editing main.py", "tests passing now"
+- Trivially re-discoverable: "function foo is on line 42", "file has 200 lines"
 - Too vague: "user likes clean code", "project uses Python"
-- Session mechanics: "user asked me to fix a bug"
-- Anything in CLAUDE.md or AGENTS.md — those files ARE persistent memory
+- Session mechanics: "user asked me to fix a bug", "we discussed testing"
+- Already in CLAUDE.md or AGENTS.md — those files ARE persistent memory
+- Secrets, API keys, passwords, tokens — never
 
-### Step 2: Set project scope
+If zero candidates survive, stop here. Do not force-store.
 
-Single-project session → call `memory_set_project` first. Scopes all stores automatically.
+## Step 2: Set project scope
 
-Multi-project or general session → skip, set `project` per-memory in step 4.
+```
+Single-project session?
+├── YES → memory_set_project(project="<name>")
+│         All subsequent stores auto-scope to this project.
+└── NO  → Skip. Set project= per memory in step 4.
+```
 
-### Step 3: Deduplicate
+## Step 3: Deduplicate each candidate
 
-Per candidate, before storing:
+For EVERY candidate, before storing:
 
-1. `memory_search` with topic query (limit 5)
-2. Check for semantic overlap
+```python
+memory_search(query="<candidate topic in natural language>", limit=5)
+```
 
-**Close match found:**
-- Same topic, new info → `memory_supersede` old one
-- Same topic, same info → skip
-- Same topic, contradictory → `memory_supersede` + note change
+Read results. Apply:
 
-**No match:** proceed to store.
+```
+Search returned results?
+├── NO match at all
+│   └── Proceed to step 4 (store new)
+│
+├── Same topic, same info (duplicate)
+│   └── SKIP. Do not store.
+│
+├── Same topic, new/updated info
+│   └── memory_supersede(old_id="<matched memory id>", new_content="<updated content>")
+│
+└── Same topic, contradictory info
+    └── memory_supersede(old_id="<matched memory id>", new_content="<corrected content>")
+        Include what changed and why in the content.
+```
 
-Two memories about "user's preferred formatter" must never coexist — newer supersedes older. Prevents near-duplicate accumulation that degrades search quality.
+**Critical rule:** Two memories about the same topic must never coexist. Newer supersedes older. "User's preferred formatter" appears exactly once in the database.
 
-### Step 4: Store or supersede
+## Step 4: Store surviving candidates
 
-Per surviving candidate:
+Per candidate that passed dedup with no match:
 
-**Pick type:**
-- `fact` — objective truths about code, systems, APIs
-- `preference` — how user likes things done
-- `procedure` — step-by-step workflows
-- `context` — current project state (decays via recency scoring)
-- `episode` — notable events, debugging sessions, incidents
+```python
+memory_store(
+    content="<self-contained content — what AND why>",
+    memory_type="<one of: fact, preference, procedure, context, episode>",
+    tags=["<tag1>", "<tag2>"],    # 2-4 specific tags. Not "code", "project", "general".
+    project="<name>",             # Omit if memory_set_project was called, or if global.
+)
+```
 
-**Write self-contained content.** Future session has zero conversation context. Include what AND why.
+### Pick memory_type
+
+| Type | Use when |
+|------|----------|
+| `fact` | Objective truth about code, system, API |
+| `preference` | How user wants things done |
+| `procedure` | Step-by-step workflow |
+| `context` | Current project state — decays via recency scoring |
+| `episode` | Notable event, debugging session, incident |
+
+### Content must be self-contained
+
+A fresh agent with zero conversation context reads this content. It must make complete sense alone.
 
 ```
 Good: "User prefers Ruff over Black for formatting because it's faster
        and handles import sorting in a single tool"
-Bad:  "User prefers Ruff"  (missing the why — too terse)
-Bad:  "As discussed, use Ruff"  (references conversation — not self-contained)
+Bad:  "User prefers Ruff"               — missing the why
+Bad:  "As discussed, switch to Ruff"     — references conversation
+Bad:  "The formatter preference"         — meaningless alone
 ```
 
-**Add tags** — 2-4 specific tags per memory, not generic like "code" or "project".
+### Tags must be specific
 
-### Step 5: Conflict check and summary
+```
+Good: ["ruff", "formatting", "linting"]
+Bad:  ["code", "tools", "project"]
+```
 
-Run `memory_conflicts` (scoped to project if applicable). If new conflicts:
+## Step 5: Conflict check + summary
+
+```python
+memory_conflicts(project="<project if scoped>")
+```
+
+If new conflicts appear:
 
 > "Noticed conflict: [X] vs [Y]. Want me to resolve it?"
 
-Summarize saves in 1-2 sentences:
+Summarize what was saved:
 
 > "Saved 3 memories: Ruff preference, deploy procedure, auth architecture. Superseded 1 outdated API endpoint memory."
 
-## Examples
+If nothing was saved (all skipped as duplicates), say so:
 
-**Good: preference with reasoning**
-```
-content: "User requires fd over find and rg over grep for all searching.
-          Strict rule, no exceptions. Also prefers rg --files over find
-          for file listing."
-memory_type: "preference"
-tags: ["tooling", "search", "cli"]
-```
-
-**Good: superseding outdated info**
-```
-memory_supersede(
-  old_id="mem_abc",
-  new_content="API rate limit is 5000 req/min after the 2024-03
-               infrastructure upgrade (was 1000 previously)",
-)
-```
+> "Reviewed session — no new knowledge to capture. Existing memories already cover it."
 
 ## Boundaries
 
-- Stores memories only. No reorganization or cleanup (that's `/rekal-hygiene`)
-- No conversation creation — captures knowledge from conversations
-- Never stores secrets, API keys, passwords, tokens
-- Asks user before storing sensitive or personal content
+- This skill stores memories only. No reorganization, no cleanup — that's `/rekal-hygiene`.
+- No conversation creation — captures knowledge FROM conversations, not about them.
+- Never stores secrets, API keys, passwords, tokens.
+- Ask user before storing sensitive or personal content (health, finance, relationships).

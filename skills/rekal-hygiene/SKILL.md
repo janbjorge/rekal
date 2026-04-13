@@ -10,105 +10,174 @@ disable-model-invocation: true
 allowed-tools: mcp__rekal__memory_health mcp__rekal__memory_conflicts mcp__rekal__memory_search mcp__rekal__memory_topics mcp__rekal__memory_timeline mcp__rekal__memory_supersede mcp__rekal__memory_delete mcp__rekal__memory_update mcp__rekal__memory_link mcp__rekal__memory_set_project mcp__rekal__conversation_stale mcp__rekal__conversation_threads
 ---
 
-# rekal-hygiene — Memory Maintenance
+Find and fix problems in the rekal database. Every change requires explicit user approval. Never auto-delete. Never auto-modify.
 
-Find problems in rekal database — duplicates, conflicts, stale data, quality issues — and propose fixes. Every change requires explicit user approval.
+## Step 1: Health overview
 
-## Workflow
+```python
+memory_health()
+```
 
-### Step 1: Health overview
-
-Run `memory_health`. Report brief summary:
+Report one line:
 
 > "142 memories across 3 projects, spanning 6 months. 4 conflicts detected."
 
-### Step 2: Conflict resolution
+## Step 2: Resolve conflicts
 
-Run `memory_conflicts` (globally, then per-project if many).
+```python
+memory_conflicts()  # global first
+```
 
-Per conflict pair, present side-by-side + propose resolution:
+If > 10 conflicts, also run per-project: `memory_conflicts(project="<name>")`
 
-- **One outdated** → propose `memory_supersede` (old with new)
-- **Both valid, different scope** → propose keeping both, add project scope
-- **Genuine contradiction** → ask user which is correct
-- **False positive** → propose removing `contradicts` link
+Per conflict pair, classify and propose:
 
-Format as numbered list:
+```
+Conflict type?
+├── One outdated, one current
+│   └── Propose: memory_supersede(old_id="<outdated>", new_content="<current content>")
+│
+├── Both valid, different scope (e.g. PostgreSQL for OLTP, ClickHouse for analytics)
+│   └── Propose: Keep both. Add project scope if missing.
+│
+├── Genuine contradiction, unclear which is correct
+│   └── Ask user: "Which is correct? [A] or [B]?"
+│
+└── False positive (not actually contradictory)
+    └── Propose: Remove contradicts link.
+        memory_link(from_id="<id_a>", to_id="<id_b>", relation="related_to")
+        — or memory_delete the link if truly unrelated
+```
+
+Present as numbered list:
 
 > 1. **"API uses v2"** vs **"API migrated to v3"**
 >    Proposal: Supersede v2 with v3. [approve/reject]
 > 2. **"Use PostgreSQL"** vs **"Use ClickHouse for analytics"**
->    Proposal: Not real conflict — different use cases. Remove link. [approve/reject]
+>    Proposal: Not a real conflict — different use cases. Remove link. [approve/reject]
 
-### Step 3: Duplicate sweep
+## Step 3: Find duplicates
 
-Run `memory_topics` to find clusters. Per high-count topic, run `memory_search` to surface near-duplicates.
+```python
+memory_topics()  # or memory_topics(project="<name>")
+```
+
+For every topic cluster with count >= 3, search for near-duplicates:
+
+```python
+memory_search(query="<topic name>", limit=10)
+```
+
+Read results. Group memories covering the same fact/preference/procedure.
 
 Per duplicate group:
-- Find most complete/accurate version
-- Propose superseding others into it
+1. Identify the most complete and accurate version
+2. Propose superseding all others into it
+
+Format:
 
 > **Duplicates (formatting preferences):**
-> - mem_abc: "User prefers Ruff" (2024-01)
-> - mem_def: "User prefers Ruff over Black for formatting" (2024-03)
-> - mem_ghi: "Use Ruff, not Black. Also handles import sorting." (2024-06)
+> - `mem_abc`: "User prefers Ruff" (2024-01)
+> - `mem_def`: "User prefers Ruff over Black for formatting" (2024-03)
+> - `mem_ghi`: "Use Ruff, not Black. Also handles import sorting." (2024-06)
 >
-> Proposal: Keep mem_ghi (most complete), supersede others into it.
+> Proposal: Keep `mem_ghi` (most complete). Supersede `mem_abc` and `mem_def` into it.
+> ```python
+> memory_supersede(old_id="mem_abc", new_content="<content from mem_ghi>")
+> memory_supersede(old_id="mem_def", new_content="<content from mem_ghi>")
+> ```
 
-### Step 4: Stale conversation cleanup
+## Step 4: Stale conversations
 
-Run `conversation_stale(days=30)` + `conversation_threads`.
+```python
+conversation_stale(days=30)
+conversation_threads(limit=20)
+```
 
-- Conversations with 0 memories = safe cleanup candidates
-- Conversations with memories = fine, memories persist regardless
+Flag conversations with 0 memories as cleanup candidates. Conversations with memories are fine — memories persist regardless.
 
-Only flag truly empty ones. Conversations are cheap storage.
+Conversations are cheap storage. Only flag truly empty ones older than 30 days.
 
-### Step 5: Quality audit
+## Step 5: Quality audit
 
-Sample via `memory_timeline(limit=20)`, check for:
+```python
+memory_timeline(limit=20)
+```
 
-- **Vague** — too short/generic. Propose reword or delete.
-- **Unscoped** — project-specific without project tag. Propose adding scope.
-- **Mistyped** — wrong `memory_type`. Propose correction via `memory_update`.
-- **Stale context** — `context`-type older than 60 days, probably outdated. Propose: upgrade to `fact` if still true, delete if stale.
+Skip memories created < 24 hours ago — too fresh to judge.
 
-Skip memories < 24 hours old — too fresh to judge.
+Per memory, check against these rules:
 
-### Step 6: Present action plan
+```
+Quality issue?
+├── Content < 20 characters
+│   └── Propose: reword with more context, or delete if worthless
+│       memory_update(memory_id="<id>", content="<expanded content>")
+│
+├── Project-specific content but project=None
+│   └── Propose: add scope
+│       memory_update(memory_id="<id>", project="<correct project>") — NOT SUPPORTED
+│       Note: memory_update cannot set project. Propose memory_supersede with project= set.
+│
+├── Wrong memory_type (e.g. a procedure stored as fact)
+│   └── Propose: fix type
+│       memory_update(memory_id="<id>", memory_type="<correct type>")
+│
+├── context-type AND older than 60 days
+│   └── Propose: still true? → memory_update to fact. Stale? → memory_delete.
+│       Ask user which.
+│
+└── No issues → skip
+```
 
-Compile all proposals:
+## Step 6: Present action plan
+
+Compile ALL proposals from steps 2-5 into one summary:
 
 > **Hygiene report:**
 > - 4 conflicts: 2 supersede, 1 keep-both, 1 remove-link
-> - 6 duplicate clusters: 12 memories → 6
-> - 3 unscoped memories to re-scope
-> - 2 stale context memories to review
+> - 3 duplicate clusters: 8 memories → 3
+> - 2 unscoped memories to re-scope
+> - 1 stale context memory to review
+> - 0 stale conversations
 >
 > Approve all? Or review individually?
 
-Wait for explicit approval before executing.
+Wait for explicit approval. Do NOT execute anything until user approves.
 
-### Step 7: Execute approved changes
+## Step 7: Execute approved changes
 
-After approval only:
-- Run approved supersedes, deletes, updates, link changes
-- Report what was done
-- Run `memory_health` again to confirm improvement
+After user approves (all or specific items):
+
+1. Run each approved operation:
+   - `memory_supersede` for duplicates and outdated conflicts
+   - `memory_update` for type/tag corrections
+   - `memory_delete` only for worthless entries (user explicitly approved)
+   - `memory_link` for relationship corrections
+2. Report what was done, one line per action
+3. Run `memory_health()` again, report improvement:
+
+> "Done. 142 → 134 memories. 4 → 0 conflicts. 3 duplicate clusters resolved."
 
 ## Safety rules
 
-- **Never auto-delete.** Every deletion needs user approval.
-- **Never auto-modify.** Supersedes/updates proposed, not executed.
-- **Skip memories < 24h old.** Fresh memories need time to settle.
-- **Supersede over delete.** Preserves history via links; delete only for worthless entries.
-- **No new memories.** That's `/rekal-save`.
+These are hard rules. No exceptions.
+
+- **Never auto-delete.** Every deletion requires user approval.
+- **Never auto-modify.** All changes proposed first, executed after approval.
+- **Skip < 24h old memories.** Too fresh to judge quality.
+- **Supersede over delete.** Preserves history via links. Delete only for genuinely worthless entries.
+- **No new memories.** This skill cleans. `/rekal-save` stores.
+- **No bulk approve without listing.** Always show what will change before asking for approval.
 
 ## Large databases (500+ memories)
 
-Don't audit everything in one pass. Prioritize:
-1. Conflicts (highest impact)
-2. Highest-count topic clusters (most duplicates)
-3. Recent timeline (freshest quality issues)
+Do NOT audit everything in one pass. Prioritize in this order:
 
-Offer follow-up session if lot to review.
+1. Conflicts — highest impact on search quality
+2. Topic clusters with count >= 5 — most duplicate accumulation
+3. Recent timeline (last 30 days) — freshest quality issues
+
+After completing priority items, ask:
+
+> "Covered conflicts and top duplicate clusters. Want me to continue with a deeper audit?"
