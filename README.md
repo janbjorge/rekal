@@ -2,39 +2,13 @@
 
 **Long-term memory for LLMs. One SQLite file, no cloud, no API keys.**
 
-You tell your LLM you prefer Ruff, that deploys go through tags, that the auth service lives in `services/auth`. Next conversation — blank slate. You repeat yourself. Again. Forever.
-
-rekal fixes this. It's an [MCP](https://modelcontextprotocol.io) server that gives any LLM persistent memory across sessions. Memories are stored locally and retrieved with hybrid search (keywords + semantics + recency). Nothing leaves your machine.
-
-## What it looks like
-
-**Session 1** — you mention a preference:
+rekal is an [MCP](https://modelcontextprotocol.io) server that gives Claude Code persistent memory across sessions. Memories are stored locally in SQLite and retrieved with hybrid search (BM25 keywords + vector semantics + recency decay). Nothing leaves your machine.
 
 ```
-You:  "I prefer Ruff over Black for formatting"
-LLM:  → memory_store("User prefers Ruff over Black", type="preference")
-```
-
-**Session 47** — different day, different conversation:
-
-```
-You:  "Set up linting for my new project"
-LLM:  → memory_search("formatting linting preferences")
-      ← "User prefers Ruff over Black" (score: 0.92)
-      Sets up Ruff without asking.
-```
-
-**When facts change**, old versions stay linked — not silently overwritten:
-
-```
-LLM:  → memory_supersede(old_id, "API moved from v2 to v3")
-```
-
-**When things contradict**:
-
-```
-LLM:  → memory_conflicts(project="backend")
-      ← "use PostgreSQL for everything" contradicts "migrate analytics to ClickHouse"
+Session 1:   "I prefer Ruff over Black"  → memory_store(...)
+Session 47:  "Set up linting"            → memory_search("formatting preferences")
+                                          ← "User prefers Ruff over Black" (0.92)
+                                          Sets up Ruff without asking.
 ```
 
 ## Install
@@ -49,222 +23,61 @@ or with [uv](https://docs.astral.sh/uv/):
 uv tool install rekal
 ```
 
-Requires Python 3.11+.
+Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db` — a single file that holds everything.
 
-## Setup — pick your client
+## Setup
 
-On first run, rekal creates `~/.rekal/memory.db` — a single file that holds everything. Copy it to back up, delete it to start fresh.
+Two steps: add the MCP server, then install the skills plugin.
 
-<details>
-<summary><strong>Claude Code</strong></summary>
-
-```bash
-claude mcp add rekal -- rekal
-```
-
-</details>
-
-<details>
-<summary><strong>Claude Desktop</strong></summary>
-
-Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Cursor</strong></summary>
-
-Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>VS Code / GitHub Copilot</strong></summary>
-
-Add to `.vscode/mcp.json` (workspace) or run **MCP: Open User Configuration** for global:
-
-```json
-{
-  "servers": {
-    "rekal": {
-      "type": "stdio",
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Windsurf</strong></summary>
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Zed</strong></summary>
-
-Add to `~/.config/zed/settings.json`:
-
-```json
-{
-  "context_servers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Cline</strong></summary>
-
-Open Cline settings, click **MCP Servers → Configure**, and add:
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Gemini CLI</strong></summary>
-
-Add to `~/.gemini/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Amazon Q CLI</strong></summary>
+**1. Add the MCP server** — gives Claude Code the memory tools:
 
 ```bash
-q mcp add rekal -- rekal
+claude mcp add rekal rekal
 ```
 
-</details>
+**2. Install the skills plugin** — teaches Claude Code when and how to use those tools:
 
-<details>
-<summary><strong>Any other MCP client</strong></summary>
-
-rekal is a standard stdio MCP server. Point your client at the `rekal` command — no args, no env vars needed.
-
-```json
-{
-  "mcpServers": {
-    "rekal": {
-      "command": "rekal"
-    }
-  }
-}
+```bash
+claude plugin marketplace add janbjorge/rekal
+claude plugin install rekal-skills@rekal
 ```
 
-</details>
+The MCP server provides the tools. The skills drive the behavior — session capture, deduplication, hygiene. Both are required.
 
-### Claude Code plugin (optional)
-
-rekal also ships as a Claude Code plugin with skills for automated memory management. Install the MCP server first (above), then inside Claude Code:
-
-```
-/plugin marketplace add janbjorge/rekal
-/plugin install rekal-skills@rekal
-```
+### Skills
 
 | Skill | Trigger | What it does |
 |-------|---------|-------------|
-| `rekal-init` | `/rekal-init` | Scans your codebase and bootstraps rekal with project knowledge |
-| `rekal-save` | Auto on session end | Reviews the conversation, deduplicates, stores what's worth keeping |
+| `rekal-init` | `/rekal-init` | Scans codebase and bootstraps rekal with project knowledge |
+| `rekal-save` | Auto on session end | Deduplicates and stores durable knowledge from the conversation |
 | `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
 
-## How search works
+## Tools
 
-Three signals, blended into one score:
+rekal exposes 16 MCP tools grouped into four categories.
 
-```
-score = 0.4 * BM25(keyword match)
-      + 0.4 * cosine(semantic similarity)
-      + 0.2 * exp(-t / half_life)
-```
+**Core** — read and write memories:
 
-- **Keywords** — "deploy auth" matches "deploy auth"
-- **Semantics** — "shipping the login system to pre-prod" also matches "deploy auth"
-- **Recency** — recent stuff ranks higher, but old memories still surface when relevant
+| Tool | Purpose |
+|------|---------|
+| `memory_store` | Store a memory with type, project, and tags |
+| `memory_search` | Hybrid search across all memories |
+| `memory_update` | Edit content, tags, or type of an existing memory |
+| `memory_delete` | Remove a memory by ID |
 
-Embeddings run locally via [fastembed](https://github.com/qdrant/fastembed) (ONNX). No API calls, no network, no latency.
+**Smart write** — manage knowledge over time:
 
-## 16 MCP tools
+| Tool | Purpose |
+|------|---------|
+| `memory_supersede` | Replace a memory while linking the old one as history |
+| `memory_link` | Connect memories: `supersedes`, `contradicts`, or `related_to` |
+| `memory_build_context` | One call that returns relevant memories + conflicts + timeline |
 
-### Core
+**Introspection** — explore what's stored:
 
-| Tool | What it does |
-|------|-------------|
-| `memory_store` | Store a memory with type, project, tags, and conversation scope |
-| `memory_search` | Hybrid search: BM25 + vector + recency in one query |
-| `memory_update` | Update content, tags, or type (re-embeds automatically) |
-| `memory_delete` | Delete a memory by ID |
-
-### Smart write
-
-| Tool | What it does |
-|------|-------------|
-| `memory_supersede` | Replace a memory while keeping the old one linked as history |
-| `memory_link` | Link memories: `supersedes`, `contradicts`, `related_to` |
-| `memory_build_context` | Relevant memories + conflicts + timeline in one call |
-
-### Introspection
-
-| Tool | What it does |
-|------|-------------|
+| Tool | Purpose |
+|------|---------|
 | `memory_similar` | Find memories similar to a given one |
 | `memory_topics` | Topic summary grouped by type |
 | `memory_timeline` | Chronological view with optional date range |
@@ -272,41 +85,66 @@ Embeddings run locally via [fastembed](https://github.com/qdrant/fastembed) (ONN
 | `memory_health` | Database stats: counts by type, project, date range |
 | `memory_conflicts` | Find memories that contradict each other |
 
-### Conversations
+**Conversations** — track session threads:
 
-| Tool | What it does |
-|------|-------------|
+| Tool | Purpose |
+|------|---------|
 | `conversation_start` | Start a conversation, optionally linked to a previous one |
 | `conversation_tree` | Get the full conversation DAG |
 | `conversation_threads` | List recent conversations with memory counts |
 | `conversation_stale` | Find inactive conversations |
 
-## Memory types
+## How it works
 
-| Type | For | Example |
-|------|-----|---------|
-| `fact` | Things that are true | "The API rate limit is 1000 req/min" |
-| `preference` | How you like things | "Prefers dataclasses over hand-written \_\_init\_\_" |
-| `procedure` | Steps to do something | "Deploy: git tag vX.Y.Z && git push --tags" |
-| `context` | Current state | "Currently rewriting the payment service" |
-| `episode` | Things that happened | "Debugged the OOM — root cause was unbounded cache" |
+### Storage
 
-## Architecture
+Everything lives in a single SQLite file (`~/.rekal/memory.db`). Three subsystems share it:
 
-Everything lives in one SQLite file. Four subsystems:
+- **memories table** — content, type, project, tags, timestamps, access counts
+- **FTS5 virtual table** — full-text index over content+tags+project, auto-synced via triggers on insert/update/delete
+- **sqlite-vec virtual table** — 384-dimensional vector index for semantic search
+
+When you store a memory, rekal writes the row, updates the FTS5 index (automatically), and inserts a vector embedding. When you update content, it re-embeds automatically.
+
+Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_supersede` writes the new memory and creates a `supersedes` link to the old one in a single operation — old knowledge stays queryable but the link makes the lineage explicit.
+
+### Embeddings
+
+rekal uses [fastembed](https://github.com/qdrant/fastembed) with the `BAAI/bge-small-en-v1.5` model (384 dimensions). It runs locally via ONNX — no API calls, no network, no tokens billed. The model is downloaded once on first use (~50MB) and cached.
+
+Vectors are stored as packed floats in sqlite-vec and queried with approximate nearest-neighbor search.
+
+### Search
+
+Every `memory_search` runs two parallel lookups, merges candidates, then scores them:
 
 ```
-rekal
-  │
-  SQLite ──┬── FTS5 index ──── keyword relevance (BM25)
-           ├── sqlite-vec ──── semantic similarity (384d vectors)
-           ├── recency ─────── exponential decay (30-day half-life)
-           └── memory links ── supersedes / contradicts / related_to
+1. Vector search   → top 3×limit candidates by cosine distance
+2. FTS5 search     → top 3×limit candidates by BM25 rank
+3. Union the candidate sets
+4. For each candidate, compute:
+
+   score = 0.4 × sigmoid(-BM25)        ← keyword relevance
+         + 0.4 × (1 - cosine_distance)  ← semantic similarity
+         + 0.2 × exp(-0.693 × days/30)  ← recency (30-day half-life)
+
+5. Sort by score, return top limit
 ```
 
-No external services. No background processes. No config files. Just `rekal` and a `.db` file.
+**Why three signals?** Keywords alone miss synonyms ("deploy" vs "ship to prod"). Vectors alone miss exact identifiers (`BAAI/bge-small-en-v1.5` needs exact match). Recency alone buries important old knowledge. The blend covers all three failure modes.
 
-Conversations form a DAG (follow-ups, branches, merges) — navigable like a git log.
+**Why 0.4/0.4/0.2?** Keywords and semantics contribute equally — neither dominates. Recency is a tiebreaker at 0.2: a one-day-old memory scores ~0.195, a 90-day-old memory still scores ~0.025. Old memories surface when keyword or semantic match is strong enough.
+
+**Why over-fetch 3x?** Filtering by project/type/conversation happens after scoring (no dynamic SQL injection). Over-fetching ensures enough candidates survive filtering to fill the requested limit.
+
+### Why SQLite?
+
+- **Single file** — copy it, back it up, version-control it, delete it to start fresh
+- **Zero config** — no daemon, no port, no connection string
+- **FTS5 built-in** — BM25 ranking with no external search engine
+- **sqlite-vec extension** — vector search in the same process, no separate vector DB
+- **Sub-millisecond** — everything is local disk I/O, no network round-trips
+- **Portable** — works on macOS, Linux, Windows without different backends
 
 ## CLI
 
@@ -315,16 +153,6 @@ rekal serve    # Run as MCP server (default)
 rekal health   # Database health report
 rekal export   # Export all memories as JSON
 ```
-
-## Why rekal?
-
-| | rekal | Cloud memory services |
-|---|---|---|
-| **Privacy** | Everything local. Nothing leaves your machine | Data sent to third-party servers |
-| **Cost** | Free forever | Per-query or subscription pricing |
-| **Speed** | Sub-millisecond SQLite queries | Network round-trips |
-| **Portability** | One `.db` file. Copy, back up, version control | Vendor lock-in |
-| **Dependencies** | `pip install` and go | API keys, accounts, config |
 
 ## License
 
