@@ -53,34 +53,16 @@ Requires Python 3.11+.
 
 ## Setup — pick your client
 
-rekal works two ways: as an **MCP server** (16 memory tools, works with any client) and as a **Claude Code plugin** (adds skills for automated memory management on top of the MCP server).
-
 On first run, rekal creates `~/.rekal/memory.db` — a single file that holds everything. Copy it to back up, delete it to start fresh.
 
-### Claude Code
-
-MCP server + plugin with skills — the full experience:
+<details>
+<summary><strong>Claude Code</strong></summary>
 
 ```bash
-# MCP server (memory tools)
 claude mcp add rekal -- rekal
 ```
 
-Then inside Claude Code, install the plugin for automated memory management:
-
-```
-/plugin marketplace add janbjorge/rekal
-/plugin install rekal-skills@rekal
-```
-
-| Skill | Trigger | What it does |
-|-------|---------|-------------|
-| `rekal-init` | `/rekal-init` | Scans your codebase and bootstraps rekal with project knowledge |
-| `rekal-save` | Auto on session end | Reviews the conversation, deduplicates, stores what's worth keeping |
-| `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
-| `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
-
-### All other clients
+</details>
 
 <details>
 <summary><strong>Claude Desktop</strong></summary>
@@ -227,6 +209,22 @@ rekal is a standard stdio MCP server. Point your client at the `rekal` command �
 ```
 
 </details>
+
+### Claude Code plugin (optional)
+
+rekal also ships as a Claude Code plugin with skills for automated memory management. Install the MCP server first (above), then inside Claude Code:
+
+```
+/plugin marketplace add janbjorge/rekal
+/plugin install rekal-skills@rekal
+```
+
+| Skill | Trigger | What it does |
+|-------|---------|-------------|
+| `rekal-init` | `/rekal-init` | Scans your codebase and bootstraps rekal with project knowledge |
+| `rekal-save` | Auto on session end | Reviews the conversation, deduplicates, stores what's worth keeping |
+| `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
+| `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
 
 ## How search works
 
