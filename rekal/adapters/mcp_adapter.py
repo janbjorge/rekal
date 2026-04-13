@@ -47,6 +47,36 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
         await db.close()
 
 
-mcp = FastMCP("rekal", lifespan=lifespan)
+INSTRUCTIONS = """\
+rekal gives you persistent long-term memory across sessions.
+
+## Continuous memory capture
+
+Do NOT wait until the end of a session to store memories. As you work, proactively \
+store durable knowledge the moment it surfaces:
+
+- User states a preference or corrects you → memory_store immediately
+- You discover a non-obvious architectural fact → memory_store
+- A debugging session reveals a surprising root cause → memory_store
+- User describes a workflow or procedure → memory_store
+- A decision is made with reasoning → memory_store
+
+Before every store, call memory_search first to deduplicate. If the same topic exists, \
+use memory_supersede instead of creating a duplicate.
+
+## Session start
+
+Call memory_build_context with your current task to load relevant prior knowledge. \
+Do this before exploring the codebase.
+
+## What NOT to store
+
+- Transient state ("currently editing X", "tests passing")
+- Trivially re-discoverable facts (line numbers, file lengths)
+- Vague platitudes ("user likes clean code")
+- Secrets, API keys, passwords, tokens — never
+"""
+
+mcp = FastMCP("rekal", instructions=INSTRUCTIONS, lifespan=lifespan)
 
 import rekal.adapters.tools  # noqa: E402, F401
