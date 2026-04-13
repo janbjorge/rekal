@@ -1,20 +1,26 @@
 # rekal
 
-Long-term memory for LLMs. An [MCP](https://modelcontextprotocol.io) server backed by a single SQLite file.
+Long-term memory for LLMs. One SQLite file, no cloud, no API keys.
+
+You tell your LLM you prefer Ruff, that deploys go through tags, that the auth service lives in `services/auth`. Next conversation, blank slate. You repeat yourself. Again. Forever.
+
+rekal is an [MCP](https://modelcontextprotocol.io) server that gives LLMs persistent memory. It stores what matters and retrieves it later using hybrid search (BM25 keywords + vector similarity + recency decay). Embeddings run locally via [fastembed](https://github.com/qdrant/fastembed). Nothing leaves your machine.
 
 ```bash
 pip install rekal
 ```
 
-## The problem
+Requires Python 3.11+.
 
-LLMs forget everything between sessions. You tell it you prefer Ruff, that you deploy with tags, that the auth service lives in `services/auth`. Next conversation, blank slate.
+## Setup
 
-rekal fixes this. It stores memories in SQLite with hybrid search (keywords + vectors + recency) so your LLM can recall things you've told it before. One file, no cloud, no API keys.
+### 1. Install and add the MCP server
 
-## Quick start
+```bash
+pip install rekal
+```
 
-Add rekal to your MCP client config (Claude Desktop, Cursor, Claude Code, etc.):
+Then add rekal to your MCP client config (Claude Desktop, Cursor, Claude Code, etc.):
 
 ```json
 {
@@ -28,7 +34,19 @@ Add rekal to your MCP client config (Claude Desktop, Cursor, Claude Code, etc.):
 
 On first run, rekal creates `~/.rekal/memory.db`. That single file holds everything. Copy it to back up, drop it to start fresh.
 
-Requires Python 3.14+.
+### 2. (Optional) Claude Code skills
+
+If you use [Claude Code](https://code.claude.com), rekal ships as a plugin with two skills for automated memory management. The plugin talks to the MCP server from step 1, so install that first.
+
+```bash
+/plugin marketplace add janbjorge/rekal
+/plugin install rekal-skills@rekal
+```
+
+| Skill | Trigger | What it does |
+|-------|---------|-------------|
+| `rekal-save` | Auto on session end, or `/rekal-save` | Reviews the conversation, deduplicates against existing memories, stores what's worth keeping |
+| `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, and stale data. Proposes fixes for your approval, never deletes on its own |
 
 ## How it works
 
@@ -70,27 +88,7 @@ score = 0.4 · BM25(keyword match)
       + 0.2 · exp(-t/half_life)
 ```
 
-"deploy auth" and "shipping the login system to pre-prod" both find the same memory. Recent stuff ranks higher, but old memories still show up when relevant.
-
-Embeddings run locally via [fastembed](https://github.com/qdrant/fastembed). Nothing leaves your machine.
-
-## Claude Code skills
-
-If you use [Claude Code](https://code.claude.com), rekal ships as a plugin with two skills:
-
-| Skill | Trigger | What it does |
-|-------|---------|-------------|
-| `rekal-save` | Auto on session end, or `/rekal-save` | Reviews the conversation, deduplicates against existing memories, stores what's worth keeping |
-| `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, and stale data. Proposes fixes for your approval, never deletes on its own |
-
-Install in Claude Code:
-
-```bash
-/plugin marketplace add janbjorge/rekal
-/plugin install rekal-skills@rekal
-```
-
-Requires rekal to be running as an MCP server (see [Quick start](#quick-start)).
+"deploy auth" and "shipping the login system to pre-prod" both find the same memory. Recent stuff ranks higher, but old memories still surface when relevant.
 
 ## Tools
 
