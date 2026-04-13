@@ -32,7 +32,7 @@ Two steps: add the MCP server, then install the skills plugin.
 **1. Add the MCP server** — gives Claude Code the memory tools:
 
 ```bash
-claude mcp add rekal -- rekal
+claude mcp add rekal rekal
 ```
 
 **2. Install the skills plugin** — teaches Claude Code when and how to use those tools:
