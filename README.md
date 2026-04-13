@@ -20,7 +20,33 @@ Requires Python 3.11+.
 pip install rekal
 ```
 
-Then add rekal to your MCP client config (Claude Desktop, Cursor, Claude Code, etc.):
+Then add rekal to your MCP client:
+
+**Claude Code**
+```bash
+claude mcp add rekal -- rekal
+```
+
+**Claude Desktop (macOS)**
+```bash
+open ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+Add under `"mcpServers"`:
+```json
+"rekal": { "command": "rekal" }
+```
+
+**Cursor**
+```bash
+open ~/.cursor/mcp.json
+```
+Add under `"mcpServers"`:
+```json
+"rekal": { "command": "rekal" }
+```
+
+<details>
+<summary>Full JSON example (any MCP client)</summary>
 
 ```json
 {
@@ -31,6 +57,7 @@ Then add rekal to your MCP client config (Claude Desktop, Cursor, Claude Code, e
   }
 }
 ```
+</details>
 
 On first run, rekal creates `~/.rekal/memory.db`. That single file holds everything. Copy it to back up, drop it to start fresh.
 
