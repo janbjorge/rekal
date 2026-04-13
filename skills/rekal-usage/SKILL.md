@@ -1,195 +1,198 @@
 ---
 name: rekal-usage
 description: >
-  Guide for using rekal's MCP tools effectively. Teaches tool selection,
-  query patterns, project scoping, and retrieval workflows. Use at session
-  start, when an agent is unsure how to query memories, or when onboarding
-  a new agent to a rekal-enabled workspace. Trigger: /rekal-usage,
-  "how do I use rekal", "what rekal tools are there", "help with memory".
+  Operational guide for rekal memory tools. Precise rules for when/how to call
+  each tool, with exact parameters and decision trees. Use at session start,
+  when onboarding to a rekal workspace, or when user asks "how do I use rekal",
+  "what rekal tools", "help with memory". Trigger: /rekal-usage.
 allowed-tools: mcp__rekal__memory_build_context mcp__rekal__memory_search mcp__rekal__memory_topics mcp__rekal__memory_health mcp__rekal__memory_timeline mcp__rekal__memory_similar mcp__rekal__memory_related mcp__rekal__memory_conflicts mcp__rekal__memory_set_project mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_update mcp__rekal__memory_delete mcp__rekal__memory_link mcp__rekal__conversation_start mcp__rekal__conversation_tree mcp__rekal__conversation_threads mcp__rekal__conversation_stale
 ---
 
-# rekal-usage — How to Use rekal Memory
+You have persistent memory via rekal MCP tools. Follow these rules exactly.
 
-rekal gives you persistent long-term memory via MCP tools. This skill teaches you how to use them effectively.
+## Session start
 
-## Quick start: the two tools you need most
+1. If working in one project: `memory_set_project(project="<name>")`. All subsequent calls auto-scope.
+2. Call `memory_build_context(query="<task description>")`. This returns memories + conflicts + timeline in one call. Read the result before proceeding.
 
-### `memory_build_context` — start here
+Do this EVERY session. Do not skip. Do not explore the codebase before checking memory.
 
-Your default entry point. One call returns relevant memories + conflicts + recent timeline for a query.
+## Retrieving knowledge
 
-```
-memory_build_context(query="authentication setup", project="backend")
-```
-
-Use this when:
-- Starting a task (get relevant prior knowledge)
-- The user asks about something that might have prior context
-- You need a broad picture before diving in
-
-### `memory_search` — for focused lookups
-
-Narrower than build_context. Use when you know what you're looking for.
+### Decision tree
 
 ```
-memory_search(query="deploy procedure", project="backend", limit=5)
-memory_search(query="formatting preferences", memory_type="preference")
+Need prior knowledge about a topic?
+├── Broad context (starting task, unfamiliar area)
+│   └── memory_build_context(query="...", project="...", limit=10)
+│       Returns: relevant memories + conflicts + recent timeline
+│
+├── Specific lookup (one fact, one preference, one procedure)
+│   └── memory_search(query="...", limit=5)
+│       Filter with: project=, memory_type=, conversation_id=
+│
+├── What topics exist?
+│   └── memory_topics(project="...")
+│
+├── What changed recently?
+│   └── memory_timeline(project="...", limit=20)
+│       Date filter: start="2024-01-01 00:00:00", end="2024-12-31 23:59:59"
+│
+├── Given a memory ID, find neighbors?
+│   └── memory_similar(memory_id="mem_xxx", limit=5)
+│
+├── Given a memory ID, follow its links?
+│   └── memory_related(memory_id="mem_xxx")
+│       Returns: supersedes, contradicts, related_to links
+│
+└── Database health check?
+    └── memory_health()
 ```
 
-Use this when:
-- You need a specific fact, preference, or procedure
-- You want to filter by type, project, or conversation
-- You're checking if something is already stored (before storing)
+### Query rules
 
-## Tool reference
+Queries go through hybrid search: BM25 keywords + vector similarity + recency decay.
 
-### Retrieval tools
-
-| Tool | When to use |
-|------|-------------|
-| `memory_build_context` | Starting a task, broad context gathering. Returns memories + conflicts + timeline in one call. |
-| `memory_search` | Focused lookup. Supports filters: project, memory_type, conversation_id. |
-| `memory_similar` | Given a memory ID, find related ones by vector similarity. |
-| `memory_topics` | Overview of what's stored, grouped by type. Good for orientation. |
-| `memory_timeline` | Chronological view. Filter by date range. Good for "what changed recently". |
-| `memory_related` | Follow links from a memory (supersedes, contradicts, related_to). |
-| `memory_health` | Database stats: counts, projects, date range. Quick health check. |
-| `memory_conflicts` | Find contradicting memories. Check after storing new facts. |
-
-### Write tools
-
-| Tool | When to use |
-|------|-------------|
-| `memory_store` | Store new knowledge. Always set type and tags. |
-| `memory_supersede` | Replace outdated memory. Keeps old version linked. Prefer over delete + store. |
-| `memory_update` | Change content, tags, or type on existing memory. |
-| `memory_delete` | Remove a memory entirely. Use sparingly — supersede preserves history. |
-| `memory_link` | Connect two memories: `supersedes`, `contradicts`, `related_to`. |
-
-### Session tools
-
-| Tool | When to use |
-|------|-------------|
-| `memory_set_project` | Scope all subsequent calls to a project. Set once at session start. |
-| `conversation_start` | Begin a conversation thread. Optional: link to previous conversation. |
-| `conversation_tree` | View the conversation DAG (follow-ups, branches). |
-| `conversation_threads` | List recent conversations with memory counts. |
-| `conversation_stale` | Find old inactive conversations. |
-
-## Search scoring
-
-rekal blends three signals:
-
+**Do:** Use natural language with domain terms.
 ```
-score = 0.4 * BM25 (keyword match)
-      + 0.4 * cosine (semantic similarity)
-      + 0.2 * recency (exponential decay, 30-day half-life)
+"JWT refresh token rotation policy"     — specific, has domain terms
+"how to deploy auth service to staging" — natural language, synonyms work
+"user's preferred formatter and why"    — retrieves preferences with reasoning
 ```
 
-This means:
-- **Exact keywords matter** — "Ruff formatter" finds "Ruff" memories
-- **Synonyms work** — "shipping login to pre-prod" finds "deploy auth service"
-- **Recent memories rank higher** — but old ones still surface when relevant
-
-## Query patterns
-
-### Good queries
-
+**Do not:** Use vague, generic, or garbage queries.
 ```
-"user's preferred code formatter"        — specific topic
-"how to deploy the auth service"         — natural language works
-"PostgreSQL vs MySQL decision"           — decisions and reasoning
-"debugging OOM in parser"                — past episodes
+"stuff"          — matches nothing useful
+"code"           — matches everything
+"the thing"      — no semantic content
 ```
 
-### Bad queries
+### Filtering
+
+- `project="backend"` — scope to one project. Use when multi-project workspace.
+- `memory_type="preference"` — only user preferences. Types: `fact`, `preference`, `procedure`, `context`, `episode`.
+- `conversation_id="conv_xxx"` — only memories from one conversation.
+
+Combine filters: `memory_search(query="testing", project="api", memory_type="procedure", limit=5)`
+
+## Storing knowledge
+
+### Rule: ALWAYS search before storing
 
 ```
-"stuff"                                  — too vague
-"code"                                   — matches everything
-"the thing we talked about"              — no semantic content
-"a]s#df"                                 — noise
+1. memory_search(query="<what you want to store>", limit=5)
+2. Read results:
+   ├── Exact duplicate found     → do nothing
+   ├── Same topic, outdated info → memory_supersede(old_id="mem_xxx", new_content="...")
+   ├── Same topic, contradicts   → memory_supersede(old_id="mem_xxx", new_content="...") + note the change
+   └── No match                  → memory_store(content="...", memory_type="...", tags=[...])
 ```
 
-### Tips
+Never skip step 1. Duplicates degrade search quality.
 
-- **Use natural language.** The vector search handles synonyms and paraphrasing.
-- **Be specific.** "React component testing strategy" beats "testing".
-- **Include domain terms.** "JWT refresh token rotation" finds auth memories.
-- **Filter by project** when working in a multi-project workspace.
-- **Filter by type** when you know what you want: `memory_type="procedure"` for how-tos, `memory_type="preference"` for user preferences.
+### memory_store — exact parameters
 
-## Workflows
-
-### Starting a new task
-
-```
-1. memory_set_project("myproject")           — scope the session
-2. memory_build_context("the task topic")    — get prior knowledge
-3. Proceed with the task, informed by context
+```python
+memory_store(
+    content="User prefers Ruff over Black for formatting because it's faster and handles import sorting",
+    memory_type="preference",      # REQUIRED. One of: fact, preference, procedure, context, episode
+    tags=["formatting", "ruff"],   # REQUIRED. 2-4 specific tags. Not "code" or "project".
+    project="backend",             # Set if project-specific. Omit for global knowledge.
+    conversation_id="conv_xxx",    # Set if part of a conversation thread. Usually omit.
+)
 ```
 
-### Checking before storing
+### memory_supersede — replacing outdated knowledge
 
-```
-1. memory_search("the thing you want to store", limit=5)
-2. If close match exists → memory_supersede (don't create duplicates)
-3. If no match → memory_store with type + tags
-```
-
-### When facts change
-
-```
-1. memory_search("the outdated fact")
-2. memory_supersede(old_id="mem_xxx", new_content="updated fact")
-   — NOT delete + store (supersede preserves history)
+```python
+memory_supersede(
+    old_id="mem_abc123",                                    # ID from search results
+    new_content="API rate limit is 5000 req/min after the March infrastructure upgrade (was 1000)",
+    # memory_type, project, tags inherited from old memory unless overridden
+)
 ```
 
-### Exploring what's stored
+Use supersede, NOT delete + store. Supersede preserves history via links.
+
+### memory_types — pick the right one
+
+| Type | When | Example content |
+|------|------|-----------------|
+| `fact` | Objective truth about code/systems/APIs | `"Auth service uses JWT with 15-min access token, 7-day refresh token"` |
+| `preference` | How user wants things done | `"User requires rg over grep, fd over find — strict, no exceptions"` |
+| `procedure` | Step-by-step workflow | `"Deploy: 1) git tag vX.Y.Z 2) git push --tags 3) wait CI green 4) merge to main"` |
+| `context` | Current project state (decays via recency) | `"Rewriting payment service from REST to gRPC, ~60% done"` |
+| `episode` | Notable event, debugging session | `"OOM in parser traced to unbounded LRU cache — fixed by adding maxsize=1000"` |
+
+### Content rules
+
+Content must be **self-contained**. A fresh agent in a new session with zero conversation context must understand it.
 
 ```
-1. memory_health()                           — counts and stats
-2. memory_topics(project="myproject")        — topic clusters
-3. memory_timeline(limit=20)                 — recent activity
+Good: "User prefers Ruff over Black for formatting because it's faster and handles import sorting in one tool"
+Bad:  "Use Ruff"                    — no reasoning, too terse
+Bad:  "As discussed, switch to Ruff" — references conversation, not self-contained
+Bad:  "The formatter thing"          — meaningless without context
 ```
 
-### Following a memory's history
+## Updating and linking
+
+### memory_update — modify in place
+
+```python
+memory_update(
+    memory_id="mem_xxx",
+    content="new content",     # Optional. Re-embeds if changed.
+    tags=["new", "tags"],      # Optional. Replaces all existing tags.
+    memory_type="fact",        # Optional.
+)
+```
+
+Use for minor corrections (typo, adding a tag). For substantive changes, use `memory_supersede`.
+
+### memory_link — connect memories
+
+```python
+memory_link(
+    from_id="mem_xxx",
+    to_id="mem_yyy",
+    relation="related_to",    # One of: supersedes, contradicts, related_to
+)
+```
+
+- `supersedes` — new version replaces old (created automatically by memory_supersede)
+- `contradicts` — two memories conflict (flag for resolution)
+- `related_to` — topically connected
+
+### memory_conflicts — find contradictions
+
+```python
+memory_conflicts(project="backend")
+```
+
+Run after storing new facts that might conflict with existing knowledge. Returns pairs of contradicting memories.
+
+## Conversations
 
 ```
-1. memory_related(memory_id="mem_xxx")       — find links
-2. Follow supersedes chain to see how a fact evolved
+conversation_start(title="Debugging auth timeout", parent_id="conv_xxx")  # parent_id optional
+conversation_tree(conversation_id="conv_xxx")     # full DAG
+conversation_threads(limit=10)                     # recent conversations + memory counts
+conversation_stale(days=30)                        # inactive conversations
 ```
 
-## Memory types — when to use each
+Conversations are optional. Use when a session has a clear thread worth tracking.
 
-| Type | Use for | Example |
-|------|---------|---------|
-| `fact` | Objective truths about code, APIs, systems | "Auth service uses JWT with 15-min expiry" |
-| `preference` | How the user likes things done | "Prefers Ruff over Black, rg over grep" |
-| `procedure` | Step-by-step workflows | "Deploy: tag, push, wait CI, merge to main" |
-| `context` | Current project state (decays faster via recency) | "Rewriting payment service from REST to gRPC" |
-| `episode` | Notable events, debugging sessions | "OOM traced to unbounded LRU cache in parser module" |
+## Do NOT store
 
-## Project scoping
+- Transient state: "currently editing main.py", "running tests now"
+- Trivially re-discoverable: "function foo is on line 42"
+- Things in CLAUDE.md or AGENTS.md — those files are already persistent
+- Secrets, API keys, passwords, tokens — never
+- Vague platitudes: "user likes clean code", "project uses Python"
 
-- Call `memory_set_project` once at session start for single-project work
-- For multi-project sessions, pass `project=` per tool call
-- Project scoping filters search results — prevents cross-project noise
-- Memories without a project are global (visible from any project scope)
+## Do NOT use rekal for
 
-## Common mistakes
-
-1. **Not checking before storing** — creates duplicates. Always search first.
-2. **Deleting instead of superseding** — loses history. Use `memory_supersede`.
-3. **Vague content** — "use Ruff" is useless without why. Write self-contained content.
-4. **Missing type/tags** — makes retrieval harder. Always set both.
-5. **Skipping project scope** — cross-project noise in search results.
-6. **Over-storing transient info** — "currently editing main.py" isn't worth a memory.
-
-## When NOT to use rekal
-
-- Looking up code you can just read (use file tools instead)
-- Storing info already in CLAUDE.md or AGENTS.md (those are persistent by design)
-- Storing secrets, API keys, passwords, tokens (never)
-- Remembering what line a function is on (trivially re-discoverable)
+- Looking up code you can read with file tools
+- Targeted edits where you already know the file
+- Running tests, commits, mechanical refactors
