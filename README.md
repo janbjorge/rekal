@@ -59,6 +59,7 @@ If you use [Claude Code](https://code.claude.com), rekal ships as a plugin with 
 
 | Skill | Trigger | What it does |
 |-------|---------|-------------|
+| `rekal-init` | `/rekal-init`, or "bootstrap memory" | Scans your codebase for architecture, conventions, deps, and workflows — bootstraps rekal with project knowledge so you never start from scratch |
 | `rekal-usage` | `/rekal-usage`, or "how do I use rekal" | Tool reference, query patterns, and workflows — teaches agents how to use rekal effectively |
 | `rekal-save` | Auto on session end, or `/rekal-save` | Reviews the conversation, deduplicates against existing memories, stores what's worth keeping |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, and stale data. Proposes fixes for your approval, never deletes on its own |
