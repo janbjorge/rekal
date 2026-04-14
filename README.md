@@ -133,7 +133,14 @@ Every `memory_search` runs two parallel lookups, merges candidates, then scores 
 
 **Why three signals?** Keywords alone miss synonyms ("deploy" vs "ship to prod"). Vectors alone miss exact identifiers (`BAAI/bge-small-en-v1.5` needs exact match). Recency alone buries important old knowledge. The blend covers all three failure modes.
 
-**Why 0.4/0.4/0.2 defaults?** Keywords and semantics contribute equally — neither dominates. Recency is a tiebreaker at 0.2: a one-day-old memory scores ~0.195, a 90-day-old memory still scores ~0.025. Old memories surface when keyword or semantic match is strong enough. All weights and the half-life are configurable per search via `w_fts`, `w_vec`, `w_recency`, and `half_life` parameters on `memory_search` and `memory_build_context`.
+**Why 0.4/0.4/0.2 defaults?** Keywords and semantics contribute equally — neither dominates. Recency is a tiebreaker at 0.2: a one-day-old memory scores ~0.195, a 90-day-old memory still scores ~0.025. Old memories surface when keyword or semantic match is strong enough.
+
+**Configurable weights.** All weights and the half-life are configurable at two levels:
+
+- **Per project** — `memory_set_config(key="w_recency", value="0.5", project="my-app")` persists in the database across sessions. Searches scoped to that project automatically use its config.
+- **Per search** — pass `w_fts`, `w_vec`, `w_recency`, or `half_life` directly to `memory_search` or `memory_build_context` to override for a single query.
+
+Lookup order: per-search params > project config > hardcoded defaults (0.4/0.4/0.2, 30-day half-life).
 
 **Why over-fetch 3x?** Filtering by project/type/conversation happens after scoring (no dynamic SQL injection). Over-fetching ensures enough candidates survive filtering to fill the requested limit.
 
