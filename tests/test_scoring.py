@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from rekal.scoring import (
     RawScores,
+    ScoringWeights,
     combine_scores,
     normalize_fts,
     normalize_recency,
@@ -74,7 +75,19 @@ def test_combine_scores_all_bad() -> None:
 
 def test_combine_scores_custom_weights() -> None:
     raw = RawScores(fts_score=-5.0, vec_score=0.2, recency_days=10.0)
-    score1 = combine_scores(raw, w_fts=0.8, w_vec=0.1, w_recency=0.1)
-    score2 = combine_scores(raw, w_fts=0.1, w_vec=0.8, w_recency=0.1)
+    score1 = combine_scores(raw, ScoringWeights(w_fts=0.8, w_vec=0.1, w_recency=0.1))
+    score2 = combine_scores(raw, ScoringWeights(w_fts=0.1, w_vec=0.8, w_recency=0.1))
     # Different weights should give different scores
     assert score1 != score2
+
+
+def test_scoring_weights_defaults() -> None:
+    w = ScoringWeights()
+    assert w.w_fts == 0.4
+    assert w.w_vec == 0.4
+    assert w.w_recency == 0.2
+    assert w.half_life == 30.0
+
+
+def test_scoring_weights_model_fields() -> None:
+    assert set(ScoringWeights.model_fields) == {"w_fts", "w_vec", "w_recency", "half_life"}

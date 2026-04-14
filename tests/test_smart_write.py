@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from rekal.adapters.sqlite_adapter import SqliteDatabase
+from rekal.scoring import ScoringWeights
 
 
 async def test_supersede(db: SqliteDatabase) -> None:
@@ -64,7 +65,7 @@ async def test_build_context(db: SqliteDatabase) -> None:
     mid2 = await db.store("Python 2 is still used in some places")
     await db.add_memory_link(mid1, mid2, "contradicts")
 
-    ctx = await db.build_context("Python")
+    ctx = await db.build_context("Python", weights=ScoringWeights())
     assert len(ctx.memories) > 0
     assert ctx.query == "Python"
     assert (
@@ -73,6 +74,6 @@ async def test_build_context(db: SqliteDatabase) -> None:
 
 
 async def test_build_context_empty(db: SqliteDatabase) -> None:
-    ctx = await db.build_context("nonexistent xyzzy")
+    ctx = await db.build_context("nonexistent xyzzy", weights=ScoringWeights())
     assert ctx.memories == []
     assert ctx.timeline_summary == "No memories found"

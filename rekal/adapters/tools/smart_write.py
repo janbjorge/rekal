@@ -67,29 +67,33 @@ async def memory_build_context(
     project: Annotated[str | None, Field(description="Filter to this project")] = None,
     limit: Annotated[int, Field(description="Maximum memories to include")] = 10,
     w_fts: Annotated[
-        float, Field(description="Weight for keyword (BM25) relevance, 0.0-1.0")
-    ] = 0.4,
-    w_vec: Annotated[
-        float, Field(description="Weight for semantic (vector) similarity, 0.0-1.0")
-    ] = 0.4,
-    w_recency: Annotated[float, Field(description="Weight for recency decay, 0.0-1.0")] = 0.2,
-    half_life: Annotated[
-        float,
+        float | None,
         Field(
-            description="Recency half-life in days. "
-            "Memories lose half their recency score after this many days"
+            description="Weight for keyword (BM25) relevance, 0.0-1.0. "
+            "Default: project config or 0.4"
         ),
-    ] = 30.0,
+    ] = None,
+    w_vec: Annotated[
+        float | None,
+        Field(
+            description="Weight for semantic (vector) similarity, 0.0-1.0. "
+            "Default: project config or 0.4"
+        ),
+    ] = None,
+    w_recency: Annotated[
+        float | None,
+        Field(description="Weight for recency decay, 0.0-1.0. Default: project config or 0.2"),
+    ] = None,
+    half_life: Annotated[
+        float | None,
+        Field(description="Recency half-life in days. Default: project config or 30.0"),
+    ] = None,
 ) -> dict[str, str | list[dict[str, str | int | float | list[str] | None]]]:
     """Build rich context for a query: relevant memories + conflicts + timeline."""
     db = ctx.request_context.lifespan_context.db
-    result = await db.build_context(
-        query,
-        project=resolve_project(ctx, project),
-        limit=limit,
-        w_fts=w_fts,
-        w_vec=w_vec,
-        w_recency=w_recency,
-        half_life=half_life,
+    resolved_project = resolve_project(ctx, project)
+    weights = await db.resolve_weights(
+        resolved_project, w_fts=w_fts, w_vec=w_vec, w_recency=w_recency, half_life=half_life
     )
+    result = await db.build_context(query, project=resolved_project, limit=limit, weights=weights)
     return result.model_dump()

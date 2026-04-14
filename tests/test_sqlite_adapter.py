@@ -84,3 +84,66 @@ async def test_update_nonexistent(db: SqliteDatabase) -> None:
 async def test_update_no_changes(db: SqliteDatabase) -> None:
     mid = await db.store("A memory")
     assert not await db.update(mid)
+
+
+async def test_set_and_get_config(db: SqliteDatabase) -> None:
+    await db.set_config("myproj", "w_fts", "0.6")
+    val = await db.get_config("myproj", "w_fts")
+    assert val == "0.6"
+
+
+async def test_set_config_upsert(db: SqliteDatabase) -> None:
+    await db.set_config("myproj", "w_fts", "0.6")
+    await db.set_config("myproj", "w_fts", "0.8")
+    val = await db.get_config("myproj", "w_fts")
+    assert val == "0.8"
+
+
+async def test_get_config_missing(db: SqliteDatabase) -> None:
+    val = await db.get_config("noproject", "w_fts")
+    assert val is None
+
+
+async def test_get_project_config(db: SqliteDatabase) -> None:
+    await db.set_config("proj", "w_fts", "0.5")
+    await db.set_config("proj", "half_life", "7.0")
+    config = await db.get_project_config("proj")
+    assert config == {"w_fts": "0.5", "half_life": "7.0"}
+
+
+async def test_get_project_config_empty(db: SqliteDatabase) -> None:
+    config = await db.get_project_config("empty")
+    assert config == {}
+
+
+async def test_delete_config(db: SqliteDatabase) -> None:
+    await db.set_config("proj", "w_fts", "0.5")
+    assert await db.delete_config("proj", "w_fts")
+    assert await db.get_config("proj", "w_fts") is None
+
+
+async def test_delete_config_missing(db: SqliteDatabase) -> None:
+    assert not await db.delete_config("proj", "nonexistent")
+
+
+async def test_resolve_weights_defaults(db: SqliteDatabase) -> None:
+    weights = await db.resolve_weights(None)
+    assert weights.w_fts == 0.4
+    assert weights.w_vec == 0.4
+    assert weights.w_recency == 0.2
+    assert weights.half_life == 30.0
+
+
+async def test_resolve_weights_from_project_config(db: SqliteDatabase) -> None:
+    await db.set_config("proj", "w_fts", "0.7")
+    await db.set_config("proj", "half_life", "14.0")
+    weights = await db.resolve_weights("proj")
+    assert weights.w_fts == 0.7
+    assert weights.w_vec == 0.4  # default, not in config
+    assert weights.half_life == 14.0
+
+
+async def test_resolve_weights_per_call_overrides_config(db: SqliteDatabase) -> None:
+    await db.set_config("proj", "w_fts", "0.7")
+    weights = await db.resolve_weights("proj", w_fts=0.1)
+    assert weights.w_fts == 0.1  # per-call wins

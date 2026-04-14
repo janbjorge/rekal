@@ -7,6 +7,7 @@ from pydantic import Field
 
 from rekal.adapters.mcp_adapter import mcp, resolve_project
 from rekal.models import MemoryType
+from rekal.scoring import ScoringWeights
 
 
 @mcp.tool()
@@ -59,32 +60,41 @@ async def memory_search(
         str | None, Field(description="Filter results to this conversation")
     ] = None,
     w_fts: Annotated[
-        float, Field(description="Weight for keyword (BM25) relevance, 0.0-1.0")
-    ] = 0.4,
-    w_vec: Annotated[
-        float, Field(description="Weight for semantic (vector) similarity, 0.0-1.0")
-    ] = 0.4,
-    w_recency: Annotated[float, Field(description="Weight for recency decay, 0.0-1.0")] = 0.2,
-    half_life: Annotated[
-        float,
+        float | None,
         Field(
-            description="Recency half-life in days. "
-            "Memories lose half their recency score after this many days"
+            description="Weight for keyword (BM25) relevance, 0.0-1.0. "
+            "Default: project config or 0.4"
         ),
-    ] = 30.0,
+    ] = None,
+    w_vec: Annotated[
+        float | None,
+        Field(
+            description="Weight for semantic (vector) similarity, 0.0-1.0. "
+            "Default: project config or 0.4"
+        ),
+    ] = None,
+    w_recency: Annotated[
+        float | None,
+        Field(description="Weight for recency decay, 0.0-1.0. Default: project config or 0.2"),
+    ] = None,
+    half_life: Annotated[
+        float | None,
+        Field(description="Recency half-life in days. Default: project config or 30.0"),
+    ] = None,
 ) -> list[dict[str, str | int | float | list[str] | None]]:
     """Search memories using hybrid FTS + vector + recency scoring."""
     db = ctx.request_context.lifespan_context.db
+    resolved_project = resolve_project(ctx, project)
+    weights = await db.resolve_weights(
+        resolved_project, w_fts=w_fts, w_vec=w_vec, w_recency=w_recency, half_life=half_life
+    )
     results = await db.search(
         query,
         limit=limit,
-        project=resolve_project(ctx, project),
+        project=resolved_project,
         memory_type=memory_type,
         conversation_id=conversation_id,
-        w_fts=w_fts,
-        w_vec=w_vec,
-        w_recency=w_recency,
-        half_life=half_life,
+        weights=weights,
     )
     return [r.model_dump() for r in results]
 
@@ -118,3 +128,32 @@ async def memory_update(
     if updated:
         return f"Updated memory {memory_id}"
     return f"Memory {memory_id} not found or no changes"
+
+
+@mcp.tool()
+async def memory_set_config(
+    ctx: Context,
+    key: Annotated[
+        str,
+        Field(description="Config key: w_fts, w_vec, w_recency, or half_life"),
+    ],
+    value: Annotated[str, Field(description="Config value (numeric)")],
+    project: Annotated[
+        str | None,
+        Field(description="Project scope (uses session default if not set)"),
+    ] = None,
+) -> str:
+    """Set a per-project config value. Persists in the database across sessions."""
+    if key not in ScoringWeights.model_fields:
+        valid = ", ".join(ScoringWeights.model_fields)
+        return f"Invalid key '{key}'. Valid keys: {valid}"
+    try:
+        float(value)
+    except ValueError:
+        return f"Invalid value '{value}': must be numeric"
+    resolved = resolve_project(ctx, project)
+    if not resolved:
+        return "No project specified and no session default set. Use memory_set_project first."
+    db = ctx.request_context.lifespan_context.db
+    await db.set_config(resolved, key, value)
+    return f"Set {key}={value} for project '{resolved}'"

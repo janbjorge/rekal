@@ -5,6 +5,15 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from pydantic import BaseModel
+
+
+class ScoringWeights(BaseModel, frozen=True):
+    w_fts: float = 0.4
+    w_vec: float = 0.4
+    w_recency: float = 0.2
+    half_life: float = 30.0
+
 
 @dataclass
 class RawScores:
@@ -30,16 +39,10 @@ def normalize_recency(days: float, half_life: float = 30.0) -> float:
     return math.exp(-0.693 * days / half_life)
 
 
-def combine_scores(
-    raw: RawScores,
-    *,
-    w_fts: float = 0.4,
-    w_vec: float = 0.4,
-    w_recency: float = 0.2,
-    half_life: float = 30.0,
-) -> float:
+def combine_scores(raw: RawScores, weights: ScoringWeights | None = None) -> float:
     """Combine normalized scores into a single relevance score."""
+    w = weights or ScoringWeights()
     fts = normalize_fts(raw.fts_score)
     vec = normalize_vec(raw.vec_score)
-    recency = normalize_recency(raw.recency_days, half_life)
-    return w_fts * fts + w_vec * vec + w_recency * recency
+    recency = normalize_recency(raw.recency_days, w.half_life)
+    return w.w_fts * fts + w.w_vec * vec + w.w_recency * recency

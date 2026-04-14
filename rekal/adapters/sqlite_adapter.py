@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import ChainMap
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -21,7 +22,7 @@ from rekal.models import (
     StaleConversation,
     TopicSummary,
 )
-from rekal.scoring import RawScores, combine_scores
+from rekal.scoring import RawScores, ScoringWeights, combine_scores
 
 if TYPE_CHECKING:
     import sqlite3
@@ -88,6 +89,13 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
     INSERT INTO memories_fts(rowid, content, tags, project)
     VALUES (new.rowid, new.content, new.tags, new.project);
 END;
+
+CREATE TABLE IF NOT EXISTS project_config (
+    project TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (project, key)
+);
 
 CREATE TABLE IF NOT EXISTS memory_links (
     from_id TEXT NOT NULL REFERENCES memories(id),
@@ -176,6 +184,100 @@ class SqliteDatabase:
     async def close(self) -> None:
         await self.db.close()
 
+    # ── Config ────────────────────────────────────────────────────────
+
+    async def set_config(self, project: str, key: str, value: str) -> None:
+        """Persist a scoring config value for a project.
+
+        Uses INSERT OR UPDATE so calling with an existing (project, key) pair
+        overwrites the previous value rather than raising.
+        """
+        await self.db.execute(
+            """
+            INSERT INTO project_config (project, key, value)
+            VALUES (?, ?, ?)
+            ON CONFLICT (project, key) DO UPDATE SET value = excluded.value
+            """,
+            (project, key, value),
+        )
+        await self.db.commit()
+
+    async def get_config(self, project: str, key: str) -> str | None:
+        """Look up one config entry for a project.
+
+        Returns None when the project has no value for the given key,
+        which lets callers fall back to defaults without special-casing.
+        """
+        async with self.db.execute(
+            "SELECT value FROM project_config WHERE project = ? AND key = ?",
+            (project, key),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["value"] if row else None
+
+    async def get_project_config(self, project: str) -> dict[str, str]:
+        """Load the full config dict for a project.
+
+        Used by resolve_weights to seed the ChainMap with project-level
+        scoring defaults before per-call overrides are applied.
+        """
+        result: dict[str, str] = {}
+        async with self.db.execute(
+            "SELECT key, value FROM project_config WHERE project = ?",
+            (project,),
+        ) as cursor:
+            async for row in cursor:
+                result[row["key"]] = row["value"]
+        return result
+
+    async def delete_config(self, project: str, key: str) -> bool:
+        """Remove a config entry, returning True if it existed.
+
+        After deletion the project falls back to the hardcoded default
+        for that key on subsequent searches.
+        """
+        cursor = await self.db.execute(
+            "DELETE FROM project_config WHERE project = ? AND key = ?",
+            (project, key),
+        )
+        await self.db.commit()
+        return cursor.rowcount > 0
+
+    async def resolve_weights(
+        self,
+        project: str | None,
+        *,
+        w_fts: float | None = None,
+        w_vec: float | None = None,
+        w_recency: float | None = None,
+        half_life: float | None = None,
+    ) -> ScoringWeights:
+        """Build a ScoringWeights using a three-level precedence chain.
+
+        Precedence (highest first):
+          1. Per-call overrides — explicit values passed to search/build_context.
+          2. Project config    — persisted in project_config table via set_config.
+          3. Hardcoded defaults — ScoringWeights field defaults (0.4/0.4/0.2/30).
+
+        A ChainMap merges layers 1 and 2; pydantic fills layer 3 for any
+        keys still missing. Pydantic also coerces DB strings to floats.
+        """
+        per_call: dict[str, str | float] = {
+            k: v
+            for k, v in [
+                ("w_fts", w_fts),
+                ("w_vec", w_vec),
+                ("w_recency", w_recency),
+                ("half_life", half_life),
+            ]
+            if v is not None
+        }
+        project_config: dict[str, str | float] = (
+            dict(await self.get_project_config(project)) if project else {}
+        )
+        merged = ChainMap(per_call, project_config)
+        return ScoringWeights.model_validate(merged)
+
     # ── Core ─────────────────────────────────────────────────────────
 
     async def store(
@@ -215,10 +317,7 @@ class SqliteDatabase:
         project: str | None = None,
         memory_type: MemoryType | None = None,
         conversation_id: str | None = None,
-        w_fts: float = 0.4,
-        w_vec: float = 0.4,
-        w_recency: float = 0.2,
-        half_life: float = 30.0,
+        weights: ScoringWeights,
     ) -> list[MemoryResult]:
         embedding = self.embed(query)
 
@@ -278,9 +377,7 @@ class SqliteDatabase:
                 vec_score=vec_rows.get(cid, 1.0),
                 recency_days=max(0.0, float(days)),
             )
-            score = combine_scores(
-                raw, w_fts=w_fts, w_vec=w_vec, w_recency=w_recency, half_life=half_life
-            )
+            score = combine_scores(raw, weights)
             mem.score = score
             scored.append((score, mem))
 
@@ -598,20 +695,9 @@ class SqliteDatabase:
         *,
         project: str | None = None,
         limit: int = 10,
-        w_fts: float = 0.4,
-        w_vec: float = 0.4,
-        w_recency: float = 0.2,
-        half_life: float = 30.0,
+        weights: ScoringWeights,
     ) -> ContextResult:
-        memories = await self.search(
-            query,
-            limit=limit,
-            project=project,
-            w_fts=w_fts,
-            w_vec=w_vec,
-            w_recency=w_recency,
-            half_life=half_life,
-        )
+        memories = await self.search(query, limit=limit, project=project, weights=weights)
         conflicts = await self.memory_conflicts(project=project)
 
         if memories:

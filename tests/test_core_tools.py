@@ -9,6 +9,7 @@ from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.adapters.tools.core import (
     memory_delete,
     memory_search,
+    memory_set_config,
     memory_set_project,
     memory_store,
     memory_update,
@@ -79,3 +80,32 @@ async def test_memory_set_project_tool(db: SqliteDatabase) -> None:
     await memory_store(ctx, "Test with default project")
     results = await memory_search(ctx, "Test with default project")
     assert any(r["project"] == "my-project" for r in results)
+
+
+async def test_memory_set_config_tool(db: SqliteDatabase) -> None:
+    ctx = _ctx(db)
+    await memory_set_project(ctx, "test-proj")
+    result = await memory_set_config(ctx, "w_fts", "0.6")
+    assert "Set w_fts=0.6" in result
+    val = await db.get_config("test-proj", "w_fts")
+    assert val == "0.6"
+
+
+async def test_memory_set_config_tool_invalid_key(db: SqliteDatabase) -> None:
+    ctx = _ctx(db)
+    await memory_set_project(ctx, "test-proj")
+    result = await memory_set_config(ctx, "bad_key", "0.5")
+    assert "Invalid key" in result
+
+
+async def test_memory_set_config_tool_invalid_value(db: SqliteDatabase) -> None:
+    ctx = _ctx(db)
+    await memory_set_project(ctx, "test-proj")
+    result = await memory_set_config(ctx, "w_fts", "not_a_number")
+    assert "Invalid value" in result
+
+
+async def test_memory_set_config_tool_no_project(db: SqliteDatabase) -> None:
+    ctx = _ctx(db)
+    result = await memory_set_config(ctx, "w_fts", "0.5")
+    assert "No project" in result
