@@ -66,8 +66,30 @@ async def memory_build_context(
     query: Annotated[str, Field(description="Query to build context for")],
     project: Annotated[str | None, Field(description="Filter to this project")] = None,
     limit: Annotated[int, Field(description="Maximum memories to include")] = 10,
+    w_fts: Annotated[
+        float, Field(description="Weight for keyword (BM25) relevance, 0.0-1.0")
+    ] = 0.4,
+    w_vec: Annotated[
+        float, Field(description="Weight for semantic (vector) similarity, 0.0-1.0")
+    ] = 0.4,
+    w_recency: Annotated[float, Field(description="Weight for recency decay, 0.0-1.0")] = 0.2,
+    half_life: Annotated[
+        float,
+        Field(
+            description="Recency half-life in days. "
+            "Memories lose half their recency score after this many days"
+        ),
+    ] = 30.0,
 ) -> dict[str, str | list[dict[str, str | int | float | list[str] | None]]]:
     """Build rich context for a query: relevant memories + conflicts + timeline."""
     db = ctx.request_context.lifespan_context.db
-    result = await db.build_context(query, project=resolve_project(ctx, project), limit=limit)
+    result = await db.build_context(
+        query,
+        project=resolve_project(ctx, project),
+        limit=limit,
+        w_fts=w_fts,
+        w_vec=w_vec,
+        w_recency=w_recency,
+        half_life=half_life,
+    )
     return result.model_dump()

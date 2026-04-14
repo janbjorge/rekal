@@ -124,16 +124,16 @@ Every `memory_search` runs two parallel lookups, merges candidates, then scores 
 3. Union the candidate sets
 4. For each candidate, compute:
 
-   score = 0.4 × sigmoid(-BM25)        ← keyword relevance
-         + 0.4 × (1 - cosine_distance)  ← semantic similarity
-         + 0.2 × exp(-0.693 × days/30)  ← recency (30-day half-life)
+   score = w_fts × sigmoid(-BM25)        ← keyword relevance     (default 0.4)
+         + w_vec × (1 - cosine_distance)  ← semantic similarity  (default 0.4)
+         + w_recency × exp(-0.693 × days/half_life)  ← recency  (default 0.2, 30-day half-life)
 
 5. Sort by score, return top limit
 ```
 
 **Why three signals?** Keywords alone miss synonyms ("deploy" vs "ship to prod"). Vectors alone miss exact identifiers (`BAAI/bge-small-en-v1.5` needs exact match). Recency alone buries important old knowledge. The blend covers all three failure modes.
 
-**Why 0.4/0.4/0.2?** Keywords and semantics contribute equally — neither dominates. Recency is a tiebreaker at 0.2: a one-day-old memory scores ~0.195, a 90-day-old memory still scores ~0.025. Old memories surface when keyword or semantic match is strong enough.
+**Why 0.4/0.4/0.2 defaults?** Keywords and semantics contribute equally — neither dominates. Recency is a tiebreaker at 0.2: a one-day-old memory scores ~0.195, a 90-day-old memory still scores ~0.025. Old memories surface when keyword or semantic match is strong enough. All weights and the half-life are configurable per search via `w_fts`, `w_vec`, `w_recency`, and `half_life` parameters on `memory_search` and `memory_build_context`.
 
 **Why over-fetch 3x?** Filtering by project/type/conversation happens after scoring (no dynamic SQL injection). Over-fetching ensures enough candidates survive filtering to fill the requested limit.
 

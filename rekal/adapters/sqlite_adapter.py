@@ -215,6 +215,10 @@ class SqliteDatabase:
         project: str | None = None,
         memory_type: MemoryType | None = None,
         conversation_id: str | None = None,
+        w_fts: float = 0.4,
+        w_vec: float = 0.4,
+        w_recency: float = 0.2,
+        half_life: float = 30.0,
     ) -> list[MemoryResult]:
         embedding = self.embed(query)
 
@@ -274,7 +278,9 @@ class SqliteDatabase:
                 vec_score=vec_rows.get(cid, 1.0),
                 recency_days=max(0.0, float(days)),
             )
-            score = combine_scores(raw)
+            score = combine_scores(
+                raw, w_fts=w_fts, w_vec=w_vec, w_recency=w_recency, half_life=half_life
+            )
             mem.score = score
             scored.append((score, mem))
 
@@ -592,8 +598,20 @@ class SqliteDatabase:
         *,
         project: str | None = None,
         limit: int = 10,
+        w_fts: float = 0.4,
+        w_vec: float = 0.4,
+        w_recency: float = 0.2,
+        half_life: float = 30.0,
     ) -> ContextResult:
-        memories = await self.search(query, limit=limit, project=project)
+        memories = await self.search(
+            query,
+            limit=limit,
+            project=project,
+            w_fts=w_fts,
+            w_vec=w_vec,
+            w_recency=w_recency,
+            half_life=half_life,
+        )
         conflicts = await self.memory_conflicts(project=project)
 
         if memories:
