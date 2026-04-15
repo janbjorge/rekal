@@ -92,8 +92,14 @@ async def memory_build_context(
     """Build rich context for a query: relevant memories + conflicts + timeline."""
     db = ctx.request_context.lifespan_context.db
     resolved_project = resolve_project(ctx, project)
+    file_config = ctx.request_context.lifespan_context.file_config
     weights = await db.resolve_weights(
-        resolved_project, w_fts=w_fts, w_vec=w_vec, w_recency=w_recency, half_life=half_life
+        resolved_project,
+        w_fts=w_fts,
+        w_vec=w_vec,
+        w_recency=w_recency,
+        half_life=half_life,
+        file_config=file_config,
     )
     result = await db.build_context(query, project=resolved_project, limit=limit, weights=weights)
     return result.model_dump()

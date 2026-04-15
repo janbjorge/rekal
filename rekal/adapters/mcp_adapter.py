@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
 from mcp.server.fastmcp import Context, FastMCP
+from pydantic import BaseModel, ValidationError
 
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.embeddings import FastEmbedder
@@ -21,10 +23,54 @@ def default_db_path() -> str:
     return str(Path.home() / ".rekal" / "memory.db")
 
 
+def find_config_file(start: Path | None = None) -> Path | None:
+    """Walk up from *start* (default: CWD) looking for ``.rekal/config.yml``."""
+    current = (start or Path.cwd()).resolve()
+    for directory in [current, *current.parents]:
+        candidate = directory / ".rekal" / "config.yml"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+class FileScoring(BaseModel):
+    w_fts: float | None = None
+    w_vec: float | None = None
+    w_recency: float | None = None
+    half_life: float | None = None
+
+
+class FileConfig(BaseModel):
+    scoring: FileScoring = FileScoring()
+
+
+def load_file_config(path: Path | None = None) -> dict[str, float]:
+    """Load scoring weights from a ``.rekal/config.yml`` file.
+
+    Uses pydantic to validate and coerce values. Returns only keys
+    that were explicitly present in the YAML ``scoring:`` section.
+    Returns ``{}`` on any parse/validation error or missing file.
+    """
+    if path is None:
+        return {}
+    with path.open() as f:
+        raw = yaml.safe_load(f)
+    if not isinstance(raw, dict) or not isinstance(raw.get("scoring"), dict):
+        return {}
+    try:
+        parsed = FileConfig.model_validate(raw)
+    except ValidationError:
+        return {}
+    # model_dump(exclude_unset=True) gives us only keys that were in the YAML.
+    dumped = parsed.scoring.model_dump(exclude_unset=True)
+    return {k: v for k, v in dumped.items() if v is not None}
+
+
 @dataclass
 class AppContext:
     db: SqliteDatabase
     default_project: str | None = None
+    file_config: dict[str, float] = field(default_factory=dict)
 
 
 def resolve_project(ctx: Context, project: str | None) -> str | None:
@@ -41,8 +87,9 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     embed = FastEmbedder()
     db = await SqliteDatabase.create(db_path, embed, dimensions=embed.dimensions)
+    file_config = load_file_config(find_config_file())
     try:
-        yield AppContext(db=db, default_project=default_project)
+        yield AppContext(db=db, default_project=default_project, file_config=file_config)
     finally:
         await db.close()
 

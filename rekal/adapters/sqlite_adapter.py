@@ -251,15 +251,17 @@ class SqliteDatabase:
         w_vec: float | None = None,
         w_recency: float | None = None,
         half_life: float | None = None,
+        file_config: dict[str, float] | None = None,
     ) -> ScoringWeights:
-        """Build a ScoringWeights using a three-level precedence chain.
+        """Build a ScoringWeights using a four-level precedence chain.
 
         Precedence (highest first):
           1. Per-call overrides — explicit values passed to search/build_context.
           2. Project config    — persisted in project_config table via set_config.
-          3. Hardcoded defaults — ScoringWeights field defaults (0.4/0.4/0.2/30).
+          3. File config       — loaded from ``.rekal/config.yml`` in the project.
+          4. Hardcoded defaults — ScoringWeights field defaults (0.4/0.4/0.2/30).
 
-        A ChainMap merges layers 1 and 2; pydantic fills layer 3 for any
+        A ChainMap merges layers 1-3; pydantic fills layer 4 for any
         keys still missing. Pydantic also coerces DB strings to floats.
         """
         per_call: dict[str, str | float] = {
@@ -275,7 +277,8 @@ class SqliteDatabase:
         project_config: dict[str, str | float] = (
             dict(await self.get_project_config(project)) if project else {}
         )
-        merged = ChainMap(per_call, project_config)
+        file_defaults: dict[str, str | float] = dict(file_config or {})
+        merged = ChainMap(per_call, project_config, file_defaults)
         return ScoringWeights.model_validate(merged)
 
     # ── Core ─────────────────────────────────────────────────────────
