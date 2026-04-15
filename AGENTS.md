@@ -49,6 +49,11 @@ params: list[SqlParam] = []
 params: list[Any] = []
 ```
 
+### No `getattr` or `setattr`
+
+Never use `getattr()` or `setattr()`. Access attributes directly by name.
+These hide attribute access from type checkers and make code harder to follow.
+
 ### No underscore prefixes on attributes or methods
 
 Public by default. No `self._db`, no `_helper()`, no `_CONSTANT`.

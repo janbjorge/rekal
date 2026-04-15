@@ -135,12 +135,32 @@ Every `memory_search` runs two parallel lookups, merges candidates, then scores 
 
 **Why 0.4/0.4/0.2 defaults?** Keywords and semantics contribute equally — neither dominates. Recency is a tiebreaker at 0.2: a one-day-old memory scores ~0.195, a 90-day-old memory still scores ~0.025. Old memories surface when keyword or semantic match is strong enough.
 
-**Configurable weights.** All weights and the half-life are configurable at two levels:
+**Configurable weights.** All weights and the half-life are configurable at three levels:
 
-- **Per project** — `memory_set_config(key="w_recency", value="0.5", project="my-app")` persists in the database across sessions. Searches scoped to that project automatically use its config.
 - **Per search** — pass `w_fts`, `w_vec`, `w_recency`, or `half_life` directly to `memory_search` or `memory_build_context` to override for a single query.
+- **Per project (database)** — `memory_set_config(key="w_recency", value="0.5", project="my-app")` persists in the database across sessions. Searches scoped to that project automatically use its config.
+- **Per project (file)** — drop a `.rekal/config.yml` in your project root with version-controlled defaults:
 
-Lookup order: per-search params > project config > hardcoded defaults (0.4/0.4/0.2, 30-day half-life).
+```yaml
+scoring:
+  w_fts: 0.6
+  w_vec: 0.3
+  w_recency: 0.1
+  half_life: 14.0
+```
+
+rekal looks for this file in the working directory at startup. All keys are optional.
+
+**Precedence.** Each weight is resolved independently through four layers. The first layer that provides a value wins:
+
+| Priority | Source | Set by | Persists? |
+|----------|--------|--------|-----------|
+| 1 (highest) | Per-search params | `memory_search(..., w_fts=0.8)` | No — single query only |
+| 2 | Database project config | `memory_set_config(key, value, project)` | Yes — in SQLite, across sessions |
+| 3 | `.rekal/config.yml` | Checked into version control | Yes — shared with the team |
+| 4 (lowest) | Hardcoded defaults | Built into rekal | Always: 0.4 / 0.4 / 0.2, 30-day half-life |
+
+Layers are per-key, not all-or-nothing. If your `.rekal/config.yml` sets `w_fts` and `half_life`, and a `memory_set_config` call overrides `w_fts` in the database, the final weights for a search with no explicit params would be: `w_fts` from DB (layer 2), `half_life` from file (layer 3), `w_vec` and `w_recency` from hardcoded defaults (layer 4).
 
 **Why over-fetch 3x?** Filtering by project/type/conversation happens after scoring (no dynamic SQL injection). Over-fetching ensures enough candidates survive filtering to fill the requested limit.
 

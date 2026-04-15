@@ -26,8 +26,12 @@ class FakeContext:
     request_context: FakeRequestContext
 
 
-def _ctx(db: SqliteDatabase) -> FakeContext:
-    return FakeContext(request_context=FakeRequestContext(lifespan_context=AppContext(db=db)))
+def _ctx(db: SqliteDatabase, file_config: dict[str, float] | None = None) -> FakeContext:
+    return FakeContext(
+        request_context=FakeRequestContext(
+            lifespan_context=AppContext(db=db, file_config=file_config or {})
+        )
+    )
 
 
 async def test_memory_store_tool(db: SqliteDatabase) -> None:
