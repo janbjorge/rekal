@@ -49,8 +49,7 @@ def load_file_config(path: Path | None = None) -> dict[str, float]:
         parsed = FileConfig.model_validate(raw)
     except (ValidationError, yaml.YAMLError, OSError, TypeError):
         return {}
-    dumped = parsed.scoring.model_dump(exclude_unset=True)
-    return {k: v for k, v in dumped.items() if v is not None}
+    return parsed.scoring.model_dump(exclude_unset=True, exclude_none=True)
 
 
 @dataclass
