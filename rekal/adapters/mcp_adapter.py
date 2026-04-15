@@ -24,16 +24,9 @@ def default_db_path() -> str:
 
 
 def find_config_file(start: Path | None = None) -> Path | None:
-    """Walk up from *start* (default: CWD) looking for ``.rekal/config.yml``."""
-    current = (start or Path.cwd()).resolve()
-    candidate = current / ".rekal" / "config.yml"
-    if candidate.is_file():
-        return candidate
-    for parent in current.parents:
-        candidate = parent / ".rekal" / "config.yml"
-        if candidate.is_file():
-            return candidate
-    return None
+    """Look for ``.rekal/config.yml`` in *start* (default: CWD)."""
+    candidate = (start or Path.cwd()).resolve() / ".rekal" / "config.yml"
+    return candidate if candidate.is_file() else None
 
 
 class FileScoring(BaseModel):

@@ -149,7 +149,7 @@ scoring:
   half_life: 14.0
 ```
 
-rekal walks up from the working directory to find this file at startup. All keys are optional.
+rekal looks for this file in the working directory at startup. All keys are optional.
 
 **Precedence.** Each weight is resolved independently through four layers. The first layer that provides a value wins:
 

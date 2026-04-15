@@ -21,7 +21,7 @@ def test_find_config_file_in_start_dir() -> None:
         assert find_config_file(root) == cfg
 
 
-def test_find_config_file_walks_up() -> None:
+def test_find_config_file_does_not_walk_up() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve()
         cfg = root / ".rekal" / "config.yml"
@@ -29,7 +29,7 @@ def test_find_config_file_walks_up() -> None:
         cfg.write_text("scoring:\n  w_fts: 0.6\n")
         nested = root / "a" / "b" / "c"
         nested.mkdir(parents=True)
-        assert find_config_file(nested) == cfg
+        assert find_config_file(nested) is None
 
 
 def test_find_config_file_not_found() -> None:
