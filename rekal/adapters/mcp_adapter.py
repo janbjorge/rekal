@@ -26,8 +26,11 @@ def default_db_path() -> str:
 def find_config_file(start: Path | None = None) -> Path | None:
     """Walk up from *start* (default: CWD) looking for ``.rekal/config.yml``."""
     current = (start or Path.cwd()).resolve()
-    for directory in [current, *current.parents]:
-        candidate = directory / ".rekal" / "config.yml"
+    candidate = current / ".rekal" / "config.yml"
+    if candidate.is_file():
+        return candidate
+    for parent in current.parents:
+        candidate = parent / ".rekal" / "config.yml"
         if candidate.is_file():
             return candidate
     return None
