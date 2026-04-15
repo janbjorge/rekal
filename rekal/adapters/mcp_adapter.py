@@ -45,23 +45,14 @@ class FileConfig(BaseModel):
 
 
 def load_file_config(path: Path | None = None) -> dict[str, float]:
-    """Load scoring weights from a ``.rekal/config.yml`` file.
-
-    Uses pydantic to validate and coerce values. Returns only keys
-    that were explicitly present in the YAML ``scoring:`` section.
-    Returns ``{}`` on any parse/validation error or missing file.
-    """
+    """Load scoring weights from ``.rekal/config.yml``. Returns ``{}`` on any error."""
     if path is None:
         return {}
-    with path.open() as f:
-        raw = yaml.safe_load(f)
-    if not isinstance(raw, dict) or not isinstance(raw.get("scoring"), dict):
-        return {}
     try:
+        raw = yaml.safe_load(path.read_text())
         parsed = FileConfig.model_validate(raw)
-    except ValidationError:
+    except (ValidationError, yaml.YAMLError, OSError, TypeError):
         return {}
-    # model_dump(exclude_unset=True) gives us only keys that were in the YAML.
     dumped = parsed.scoring.model_dump(exclude_unset=True)
     return {k: v for k, v in dumped.items() if v is not None}
 
