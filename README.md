@@ -15,15 +15,11 @@ Session 47:  "Set up linting"            → memory_search("formatting preferenc
 
 ```bash
 pip install rekal
-```
-
-or with [uv](https://docs.astral.sh/uv/):
-
-```bash
+# or
 uv tool install rekal
 ```
 
-Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db` — a single file that holds everything.
+Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db`.
 
 ## Setup
 
@@ -50,7 +46,7 @@ claude plugin install rekal-skills@rekal
 }
 ```
 
-> **Why is this required?** Claude Code's built-in memory writes to `MEMORY.md` and its instructions live in the system prompt — higher priority than MCP server instructions. Without this setting, the agent ignores rekal and writes to a flat file with no search, no deduplication, no ranking. See [full explanation](#why-disable-auto-memory) below.
+> **Why is this required?** Claude Code's instruction priority is **system prompt > CLAUDE.md > MCP server instructions**. Built-in memory lives in the system prompt and always wins — without disabling it, the agent ignores rekal and writes to a flat file with no search, no deduplication, no ranking. The plugin's SessionStart hook replaces the context injection auto memory normally provides, so you don't lose anything.
 >
 > **What if I forget?** The plugin's `block-memory-writes` hook will catch and block MEMORY.md writes as a safety net, but the agent wastes turns hitting the block. Disabling auto memory is cleaner.
 >
@@ -73,12 +69,6 @@ claude plugin install rekal-skills@rekal
 | `rekal-save` | `/rekal-save` or auto on session end | Deduplicates and stores durable knowledge from the conversation |
 | `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
-
-## Why disable auto memory?
-
-Claude Code's instruction priority: **system prompt > CLAUDE.md > MCP server instructions**. Built-in memory lives in the system prompt, rekal lives in MCP instructions — so built-in memory always wins. Disabling it removes the competing instructions entirely. The plugin's SessionStart hook replaces the context injection that auto memory normally provides, so you don't lose anything.
-
-> **Note:** We've filed a [feature request](https://github.com/anthropics/claude-code/issues) for a `memoryProvider` setting that would let MCP servers replace built-in memory cleanly. Until that exists, disabling auto memory + using hooks is the most reliable approach.
 
 ## Tools
 
@@ -125,50 +115,43 @@ rekal exposes 16 MCP tools grouped into four categories.
 
 ### Storage
 
-Everything lives in a single SQLite file (`~/.rekal/memory.db`). Three subsystems share it:
+Everything lives in `~/.rekal/memory.db`. Three subsystems share it:
 
 - **memories table** — content, type, project, tags, timestamps, access counts
-- **FTS5 virtual table** — full-text index over content+tags+project, auto-synced via triggers on insert/update/delete
+- **FTS5 virtual table** — full-text index over content+tags+project, auto-synced via triggers
 - **sqlite-vec virtual table** — 384-dimensional vector index for semantic search
 
-When you store a memory, rekal writes the row, updates the FTS5 index (automatically), and inserts a vector embedding. When you update content, it re-embeds automatically.
-
-Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_supersede` writes the new memory and creates a `supersedes` link to the old one in a single operation — old knowledge stays queryable but the link makes the lineage explicit.
+Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_supersede` writes the new memory and creates a `supersedes` link in a single operation — old knowledge stays queryable with explicit lineage.
 
 ### Embeddings
 
-rekal uses [fastembed](https://github.com/qdrant/fastembed) with the `BAAI/bge-small-en-v1.5` model (384 dimensions). It runs locally via ONNX — no API calls, no network, no tokens billed. The model is downloaded once on first use (~50MB) and cached.
-
-Vectors are stored as packed floats in sqlite-vec and queried with approximate nearest-neighbor search.
+rekal uses [fastembed](https://github.com/qdrant/fastembed) with `BAAI/bge-small-en-v1.5` (384 dimensions). Runs locally via ONNX — no API calls, no network. The model downloads once on first use (~50MB) and is cached.
 
 ### Search
 
-Every `memory_search` runs two parallel lookups, merges candidates, then scores them:
+Every `memory_search` runs two parallel lookups, merges candidates, then scores:
 
 ```
-1. Vector search   → top 3×limit candidates by cosine distance
-2. FTS5 search     → top 3×limit candidates by BM25 rank
-3. Union the candidate sets
-4. For each candidate, compute:
-
-   score = w_fts × sigmoid(-BM25)        ← keyword relevance     (default 0.4)
-         + w_vec × (1 - cosine_distance)  ← semantic similarity  (default 0.4)
-         + w_recency × exp(-0.693 × days/half_life)  ← recency  (default 0.2, 30-day half-life)
-
-5. Sort by score, return top limit
+score = w_fts × sigmoid(-BM25)                       ← keyword relevance    (default 0.4)
+      + w_vec × (1 - cosine_distance)                 ← semantic similarity  (default 0.4)
+      + w_recency × exp(-0.693 × days/half_life)      ← recency              (default 0.2, 30-day half-life)
 ```
 
-**Why three signals?** Keywords alone miss synonyms ("deploy" vs "ship to prod"). Vectors alone miss exact identifiers (`BAAI/bge-small-en-v1.5` needs exact match). Recency alone buries important old knowledge. The blend covers all three failure modes.
+**Why three signals?** Keywords miss synonyms ("deploy" vs "ship to prod"). Vectors miss exact identifiers. Recency alone buries important old knowledge. The blend covers all three failure modes.
 
-**Why 0.4/0.4/0.2 defaults?** Keywords and semantics contribute equally — neither dominates. Recency is a tiebreaker at 0.2: a one-day-old memory scores ~0.195, a 90-day-old memory still scores ~0.025. Old memories surface when keyword or semantic match is strong enough.
+**Configurable weights.** All weights and half-life are configurable at three levels:
 
-**Configurable weights.** All weights and the half-life are configurable at three levels:
+| Priority | Source | Set by | Persists? |
+|----------|--------|--------|-----------|
+| 1 (highest) | Per-search params | `memory_search(..., w_fts=0.8)` | No — single query only |
+| 2 | Database project config | `memory_set_config(key, value, project)` | Yes — SQLite, across sessions |
+| 3 | `.rekal/config.yml` | Checked into version control | Yes — shared with team |
+| 4 (lowest) | Hardcoded defaults | Built into rekal | Always: 0.4 / 0.4 / 0.2, 30-day half-life |
 
-- **Per search** — pass `w_fts`, `w_vec`, `w_recency`, or `half_life` directly to `memory_search` or `memory_build_context` to override for a single query.
-- **Per project (database)** — `memory_set_config(key="w_recency", value="0.5", project="my-app")` persists in the database across sessions. Searches scoped to that project automatically use its config.
-- **Per project (file)** — drop a `.rekal/config.yml` in your project root with version-controlled defaults:
+Layers resolve per-key independently. A `.rekal/config.yml` setting `w_fts` and a DB override for `half_life` combine — each key uses its highest-priority source.
 
 ```yaml
+# .rekal/config.yml
 scoring:
   w_fts: 0.6
   w_vec: 0.3
@@ -176,40 +159,24 @@ scoring:
   half_life: 14.0
 ```
 
-rekal looks for this file in the working directory at startup. All keys are optional.
-
-**Precedence.** Each weight is resolved independently through four layers. The first layer that provides a value wins:
-
-| Priority | Source | Set by | Persists? |
-|----------|--------|--------|-----------|
-| 1 (highest) | Per-search params | `memory_search(..., w_fts=0.8)` | No — single query only |
-| 2 | Database project config | `memory_set_config(key, value, project)` | Yes — in SQLite, across sessions |
-| 3 | `.rekal/config.yml` | Checked into version control | Yes — shared with the team |
-| 4 (lowest) | Hardcoded defaults | Built into rekal | Always: 0.4 / 0.4 / 0.2, 30-day half-life |
-
-Layers are per-key, not all-or-nothing. If your `.rekal/config.yml` sets `w_fts` and `half_life`, and a `memory_set_config` call overrides `w_fts` in the database, the final weights for a search with no explicit params would be: `w_fts` from DB (layer 2), `half_life` from file (layer 3), `w_vec` and `w_recency` from hardcoded defaults (layer 4).
-
-**Why over-fetch 3x?** Filtering by project/type/conversation happens after scoring (no dynamic SQL injection). Over-fetching ensures enough candidates survive filtering to fill the requested limit.
-
 ### Why SQLite?
 
-- **Single file** — copy it, back it up, version-control it, delete it to start fresh
+- **Single file** — copy, back up, version-control, or delete to start fresh
 - **Zero config** — no daemon, no port, no connection string
-- **FTS5 built-in** — BM25 ranking with no external search engine
+- **FTS5 built-in** — BM25 ranking without an external search engine
 - **sqlite-vec extension** — vector search in the same process, no separate vector DB
-- **Sub-millisecond** — everything is local disk I/O, no network round-trips
-- **Portable** — works on macOS, Linux, Windows without different backends
+- **Sub-millisecond** — local disk I/O, no network round-trips
 
 ## Troubleshooting
 
 ### Agent still writes to MEMORY.md
 
-1. Check that `autoMemoryEnabled` is `false` in `~/.claude/settings.json` — this is the most common cause
-2. Check that the plugin is installed: `claude plugin list` should show `rekal-skills`
+1. Check `autoMemoryEnabled` is `false` in `~/.claude/settings.json`
+2. Check the plugin is installed: `claude plugin list` should show `rekal-skills`
 
 ### Agent doesn't call memory_build_context at session start
 
-The `SessionStart` hook injects a reminder, but if the agent ignores it, add this to your project's `CLAUDE.md`:
+The `SessionStart` hook injects a reminder. If the agent ignores it, add to your project's `CLAUDE.md`:
 
 ```markdown
 Call memory_build_context before exploring the codebase.
@@ -217,10 +184,20 @@ Call memory_build_context before exploring the codebase.
 
 ### Memories not being stored
 
-Check that the MCP server is running: `claude mcp list` should show `rekal`. If missing, re-add it:
+Check the MCP server is running: `claude mcp list` should show `rekal`. If missing:
 
 ```bash
 claude mcp add rekal rekal
+```
+
+### Updating the plugin
+
+Claude Code's plugin system may serve a stale cache after `plugin install`. If hooks or skills are missing after an update, clear the marketplace cache first:
+
+```bash
+rm -rf ~/.claude/plugins/marketplaces/rekal
+claude plugin marketplace add janbjorge/rekal
+claude plugin install rekal-skills@rekal
 ```
 
 ## Architecture (for contributors)
