@@ -27,7 +27,7 @@ Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db` — a si
 
 ## Setup
 
-Two steps: add the MCP server, then install the skills plugin.
+Two steps: add the MCP server, then install the plugin.
 
 **1. Add the MCP server** — gives Claude Code the memory tools:
 
@@ -35,23 +35,52 @@ Two steps: add the MCP server, then install the skills plugin.
 claude mcp add rekal rekal
 ```
 
-**2. Install the skills plugin** — teaches Claude Code when and how to use those tools:
+**2. Install the plugin** — teaches Claude Code when to use those tools, and prevents conflicts with built-in memory:
 
 ```bash
 claude plugin marketplace add janbjorge/rekal
 claude plugin install rekal-skills@rekal
 ```
 
-The MCP server provides the tools. The skills drive the behavior — session capture, deduplication, hygiene. Both are required.
+**3. Disable built-in auto memory:**
 
-### Skills
+```bash
+claude config set --user autoMemoryEnabled false
+```
+
+This is required. See [why](#why-disable-auto-memory) below.
+
+### What the plugin provides
+
+**Hooks** (automatic, no user action needed):
+
+| Hook | Event | What it does |
+|------|-------|-------------|
+| session-start | `SessionStart` | Reminds agent to call `memory_build_context` before doing anything |
+| block-memory-writes | `PreToolUse` on Edit/Write | Blocks writes to MEMORY.md, redirects to rekal tools |
+
+**Skills** (user-invocable):
 
 | Skill | Trigger | What it does |
 |-------|---------|-------------|
 | `rekal-init` | `/rekal-init` | Scans codebase and bootstraps rekal with project knowledge |
-| `rekal-save` | Auto on session end | Deduplicates and stores durable knowledge from the conversation |
-| `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
+| `rekal-save` | `/rekal-save` or auto on session end | Deduplicates and stores durable knowledge from the conversation |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
+
+## Why disable auto memory?
+
+Claude Code has a built-in memory system that writes to `MEMORY.md` files. When rekal is installed, two memory systems compete:
+
+1. **Built-in memory** (system prompt priority) tells the agent to write to `MEMORY.md`
+2. **rekal** (MCP server instructions) tells the agent to call `memory_store`
+
+The built-in system wins because its instructions are in the system prompt, which has higher priority than MCP server instructions. The result: your memories end up in a flat file with no search, no deduplication, no ranking.
+
+**Setting `autoMemoryEnabled: false` removes the competing instructions.** The rekal plugin's SessionStart hook replaces the context injection that auto memory normally provides — so you don't lose anything.
+
+If you skip this step, the plugin's `block-memory-writes` hook will catch and block MEMORY.md writes as a safety net, but the agent will waste turns trying and getting blocked. Disabling auto memory is cleaner.
+
+> **Note:** We've filed a [feature request](https://github.com/anthropics/claude-code/issues) for a `memoryProvider` setting that would let MCP servers replace built-in memory cleanly. Until that exists, disabling auto memory + using hooks is the most reliable approach.
 
 ## Tools
 
@@ -172,6 +201,72 @@ Layers are per-key, not all-or-nothing. If your `.rekal/config.yml` sets `w_fts`
 - **sqlite-vec extension** — vector search in the same process, no separate vector DB
 - **Sub-millisecond** — everything is local disk I/O, no network round-trips
 - **Portable** — works on macOS, Linux, Windows without different backends
+
+## Troubleshooting
+
+### Agent still writes to MEMORY.md
+
+1. Check that `autoMemoryEnabled` is false: `claude config get autoMemoryEnabled`
+2. Check that the plugin is installed: `claude plugin list` should show `rekal-skills`
+3. The `block-memory-writes` hook will catch stray writes, but disabling auto memory is the clean fix
+
+### Agent doesn't call memory_build_context at session start
+
+The `SessionStart` hook injects a reminder, but if the agent ignores it, add this to your project's `CLAUDE.md`:
+
+```markdown
+Call memory_build_context before exploring the codebase.
+```
+
+### Memories not being stored
+
+Check that the MCP server is running: `claude mcp list` should show `rekal`. If missing, re-add it:
+
+```bash
+claude mcp add rekal rekal
+```
+
+## Architecture (for contributors)
+
+```
+Plugin (hooks + skills)
+  │
+  ├── hooks/
+  │   ├── handlers/session-start.sh      ← SessionStart: inject context reminder
+  │   └── handlers/block-memory-writes.py ← PreToolUse: block MEMORY.md writes
+  │
+  └── skills/
+      ├── rekal-init/    ← /rekal-init: bootstrap project knowledge
+      ├── rekal-save/    ← /rekal-save: end-of-session capture
+      └── rekal-hygiene/ ← /rekal-hygiene: maintenance
+
+MCP Server (rekal)
+  │ stdio (JSON-RPC)
+  │
+  mcp_adapter.py          ← FastMCP server, lifespan, instructions
+  │
+  ├── tools/core.py       ─┐
+  ├── tools/introspection.py│─ thin @mcp.tool() wrappers
+  ├── tools/smart_write.py  │
+  └── tools/conversations.py┘
+                            │
+                    sqlite_adapter.py ← all SQL lives here
+                            │
+                            ├── SQLite (memories, conversations, tags, conflicts)
+                            ├── FTS5 (full-text index)
+                            └── sqlite-vec (vector index)
+```
+
+**Instruction flow** (single source per concern):
+
+| What | Where | Why |
+|------|-------|-----|
+| "Use rekal tools, not MEMORY.md" | MCP server instructions + PreToolUse hook | Instructions guide, hook enforces |
+| "Call memory_build_context first" | SessionStart hook | Automatic, every session |
+| "How to store/search/supersede" | MCP server instructions | Always present next to the tools |
+| "Capture session knowledge" | rekal-save skill | Explicit trigger, detailed procedure |
+| "Bootstrap project" | rekal-init skill | Explicit trigger |
+| "Clean up database" | rekal-hygiene skill | Explicit trigger |
 
 ## CLI
 
