@@ -76,16 +76,7 @@ claude plugin install rekal-skills@rekal
 
 ## Why disable auto memory?
 
-Claude Code has a built-in memory system that writes to `MEMORY.md` files. When rekal is installed, two memory systems compete:
-
-1. **Built-in memory** (system prompt priority) tells the agent to write to `MEMORY.md`
-2. **rekal** (MCP server instructions) tells the agent to call `memory_store`
-
-The built-in system wins because its instructions are in the system prompt, which has higher priority than MCP server instructions. The result: your memories end up in a flat file with no search, no deduplication, no ranking.
-
-**Setting `autoMemoryEnabled: false` removes the competing instructions.** The rekal plugin's SessionStart hook replaces the context injection that auto memory normally provides — so you don't lose anything.
-
-If you skip this step, the plugin's `block-memory-writes` hook will catch and block MEMORY.md writes as a safety net, but the agent will waste turns trying and getting blocked. Disabling auto memory is cleaner.
+Claude Code's instruction priority: **system prompt > CLAUDE.md > MCP server instructions**. Built-in memory lives in the system prompt, rekal lives in MCP instructions — so built-in memory always wins. Disabling it removes the competing instructions entirely. The plugin's SessionStart hook replaces the context injection that auto memory normally provides, so you don't lose anything.
 
 > **Note:** We've filed a [feature request](https://github.com/anthropics/claude-code/issues) for a `memoryProvider` setting that would let MCP servers replace built-in memory cleanly. Until that exists, disabling auto memory + using hooks is the most reliable approach.
 
@@ -213,9 +204,8 @@ Layers are per-key, not all-or-nothing. If your `.rekal/config.yml` sets `w_fts`
 
 ### Agent still writes to MEMORY.md
 
-1. Check that `autoMemoryEnabled` is false in `~/.claude/settings.json`
+1. Check that `autoMemoryEnabled` is `false` in `~/.claude/settings.json` — this is the most common cause
 2. Check that the plugin is installed: `claude plugin list` should show `rekal-skills`
-3. The `block-memory-writes` hook will catch stray writes, but disabling auto memory is the clean fix
 
 ### Agent doesn't call memory_build_context at session start
 
