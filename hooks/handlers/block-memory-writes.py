@@ -18,11 +18,10 @@ BLOCK_MSG = (
 
 
 def is_memory_file(path: str) -> bool:
-    for cls in (PurePosixPath, PureWindowsPath):
-        p = cls(path)
-        if p.suffix.lower() == BLOCKED_SUFFIX and p.stem.lower() in BLOCKED_STEMS:
-            return True
-    return False
+    return any(
+        cls(path).suffix.lower() == BLOCKED_SUFFIX and cls(path).stem.lower() in BLOCKED_STEMS
+        for cls in (PurePosixPath, PureWindowsPath)
+    )
 
 
 def main() -> None:
