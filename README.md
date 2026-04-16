@@ -42,10 +42,12 @@ claude plugin marketplace add janbjorge/rekal
 claude plugin install rekal-skills@rekal
 ```
 
-**3. Disable built-in auto memory:**
+**3. Disable built-in auto memory** — add this to your user settings (`~/.claude/settings.json`):
 
-```bash
-claude config set --user autoMemoryEnabled false
+```json
+{
+  "autoMemoryEnabled": false
+}
 ```
 
 This is required. See [why](#why-disable-auto-memory) below.
@@ -207,7 +209,7 @@ Layers are per-key, not all-or-nothing. If your `.rekal/config.yml` sets `w_fts`
 
 ### Agent still writes to MEMORY.md
 
-1. Check that `autoMemoryEnabled` is false: `claude config get autoMemoryEnabled`
+1. Check that `autoMemoryEnabled` is false in `~/.claude/settings.json`
 2. Check that the plugin is installed: `claude plugin list` should show `rekal-skills`
 3. The `block-memory-writes` hook will catch stray writes, but disabling auto memory is the clean fix
 
