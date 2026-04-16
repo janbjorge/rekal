@@ -65,6 +65,7 @@ This is required. See [why](#why-disable-auto-memory) below.
 |-------|---------|-------------|
 | `rekal-init` | `/rekal-init` | Scans codebase and bootstraps rekal with project knowledge |
 | `rekal-save` | `/rekal-save` or auto on session end | Deduplicates and stores durable knowledge from the conversation |
+| `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
 
 ## Why disable auto memory?
