@@ -8,7 +8,7 @@ import sys
 from pathlib import PurePosixPath, PureWindowsPath
 
 BLOCKED_STEMS = frozenset(("memory",))
-BLOCKED_SUFFIX = ".md"
+BLOCKED_SUFFIXES = frozenset((".md",))
 
 BLOCK_MSG = (
     "BLOCKED: Do not write to MEMORY.md. "
@@ -21,7 +21,7 @@ def is_memory_file(path: str) -> bool:
     # A posix parser mangles Windows paths (treats "C:\foo\bar" as one segment)
     # and vice versa — check both so we catch either convention.
     return any(
-        cls(path).suffix.lower() == BLOCKED_SUFFIX and cls(path).stem.lower() in BLOCKED_STEMS
+        cls(path).suffix.lower() in BLOCKED_SUFFIXES and cls(path).stem.lower() in BLOCKED_STEMS
         for cls in (PurePosixPath, PureWindowsPath)
     )
 
