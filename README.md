@@ -27,7 +27,7 @@ Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db` — a si
 
 ## Setup
 
-Two steps: add the MCP server, then install the plugin.
+Three steps: add the MCP server, install the plugin, and disable built-in memory.
 
 **1. Add the MCP server** — gives Claude Code the memory tools:
 
@@ -42,7 +42,7 @@ claude plugin marketplace add janbjorge/rekal
 claude plugin install rekal-skills@rekal
 ```
 
-**3. Disable built-in auto memory** — add this to your user settings (`~/.claude/settings.json`):
+**3. Disable built-in auto memory** — add `"autoMemoryEnabled": false` to `~/.claude/settings.json`:
 
 ```json
 {
@@ -50,7 +50,11 @@ claude plugin install rekal-skills@rekal
 }
 ```
 
-This is required. See [why](#why-disable-auto-memory) below.
+> **Why is this required?** Claude Code's built-in memory writes to `MEMORY.md` and its instructions live in the system prompt — higher priority than MCP server instructions. Without this setting, the agent ignores rekal and writes to a flat file with no search, no deduplication, no ranking. See [full explanation](#why-disable-auto-memory) below.
+>
+> **What if I forget?** The plugin's `block-memory-writes` hook will catch and block MEMORY.md writes as a safety net, but the agent wastes turns hitting the block. Disabling auto memory is cleaner.
+>
+> **Can the plugin do this automatically?** No — Claude Code doesn't allow plugins to modify user settings. This manual step is the only way.
 
 ### What the plugin provides
 
@@ -235,12 +239,13 @@ claude mcp add rekal rekal
 Plugin (hooks + skills)
   │
   ├── hooks/
-  │   ├── handlers/session-start.sh      ← SessionStart: inject context reminder
+  │   ├── handlers/session-start.py       ← SessionStart: inject context reminder
   │   └── handlers/block-memory-writes.py ← PreToolUse: block MEMORY.md writes
   │
   └── skills/
       ├── rekal-init/    ← /rekal-init: bootstrap project knowledge
       ├── rekal-save/    ← /rekal-save: end-of-session capture
+      ├── rekal-usage/   ← /rekal-usage: operational guide for tools
       └── rekal-hygiene/ ← /rekal-hygiene: maintenance
 
 MCP Server (rekal)
