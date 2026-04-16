@@ -83,24 +83,36 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
 INSTRUCTIONS = """\
 rekal gives you persistent long-term memory across sessions.
 
-## Continuous memory capture
+## Session start — do this first
 
-Do NOT wait until the end of a session to store memories. As you work, proactively \
-store durable knowledge the moment it surfaces:
+Call memory_build_context with your current task before exploring the codebase. \
+This loads relevant prior knowledge, conflicts, and timeline in one call.
 
-- User states a preference or corrects you → memory_store immediately
-- You discover a non-obvious architectural fact → memory_store
-- A debugging session reveals a surprising root cause → memory_store
-- User describes a workflow or procedure → memory_store
-- A decision is made with reasoning → memory_store
+## Storing memories
 
-Before every store, call memory_search first to deduplicate. If the same topic exists, \
-use memory_supersede instead of creating a duplicate.
+Store durable knowledge as you work — do not batch until session end:
 
-## Session start
+- User states a preference or corrects you → store immediately
+- Non-obvious architectural fact discovered → store
+- Debugging reveals a surprising root cause → store
+- User describes a workflow or procedure → store
+- Decision made with reasoning → store
 
-Call memory_build_context with your current task to load relevant prior knowledge. \
-Do this before exploring the codebase.
+ALWAYS call memory_search before storing. If the same topic exists, \
+call memory_supersede instead of creating a duplicate. Two memories about \
+the same topic must never coexist.
+
+### memory_store parameters
+
+- content: Self-contained text. A fresh agent with zero context must understand it.
+- memory_type: One of fact, preference, procedure, context, episode.
+- tags: 2-4 specific tags. Not "code" or "project".
+- project: Set if project-specific. Omit for global knowledge.
+
+### memory_supersede
+
+Call with old_id from search results and new_content. Preserves history via links. \
+Use supersede, not delete + store.
 
 ## What NOT to store
 
@@ -108,6 +120,11 @@ Do this before exploring the codebase.
 - Trivially re-discoverable facts (line numbers, file lengths)
 - Vague platitudes ("user likes clean code")
 - Secrets, API keys, passwords, tokens — never
+
+## This is your ONLY memory system
+
+Do NOT write memories to CLAUDE.md, MEMORY.md, or any markdown file. \
+All persistent knowledge goes through rekal tools exclusively.
 """
 
 mcp = FastMCP("rekal", instructions=INSTRUCTIONS, lifespan=lifespan)

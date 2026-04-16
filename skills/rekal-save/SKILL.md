@@ -38,7 +38,6 @@ Would a fresh agent in a new session benefit from knowing this?
 - Trivially re-discoverable: "function foo is on line 42", "file has 200 lines"
 - Too vague: "user likes clean code", "project uses Python"
 - Session mechanics: "user asked me to fix a bug", "we discussed testing"
-- Already in CLAUDE.md or AGENTS.md — those files ARE persistent memory
 - Secrets, API keys, passwords, tokens — never
 
 If zero candidates survive, stop here. Do not force-store.

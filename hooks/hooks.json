@@ -1,0 +1,26 @@
+{
+  "description": "rekal memory hooks: redirect built-in memory to rekal, load context at session start",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/session-start.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/block-memory-writes.py"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ]
+  }
+}
