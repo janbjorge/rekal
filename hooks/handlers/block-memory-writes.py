@@ -18,6 +18,8 @@ BLOCK_MSG = (
 
 
 def is_memory_file(path: str) -> bool:
+    # A posix parser mangles Windows paths (treats "C:\foo\bar" as one segment)
+    # and vice versa — check both so we catch either convention.
     return any(
         cls(path).suffix.lower() == BLOCKED_SUFFIX and cls(path).stem.lower() in BLOCKED_STEMS
         for cls in (PurePosixPath, PureWindowsPath)
@@ -25,9 +27,12 @@ def is_memory_file(path: str) -> bool:
 
 
 def main() -> None:
+    # Claude Code pipes the tool call as JSON on stdin.
     data = json.load(sys.stdin)
     path = data.get("tool_input", {}).get("file_path", "")
     if path and is_memory_file(path):
+        # stderr becomes the agent-visible block reason;
+        # exit code 2 tells Claude Code to abort the tool call.
         print(BLOCK_MSG, file=sys.stderr)
         raise SystemExit(2)
 
