@@ -112,6 +112,12 @@ VEC_TABLE_SQL = (
 )
 
 
+def quote_fts(query: str) -> str:
+    """Wrap each token in FTS5 phrase quotes so the query is always treated as literal text."""
+    tokens = query.replace('"', " ").replace("\x00", "").split()
+    return " ".join(f'"{t}"' for t in tokens)
+
+
 def now_utc() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -339,8 +345,7 @@ class SqliteDatabase:
                 vec_rows[row["id"]] = row["distance"]
 
         # FTS search — get candidate IDs + BM25 scores
-        # Quote each token so FTS5 special chars (., -, :, etc.) don't cause syntax errors
-        fts_query = " ".join(f'"{token}"' for token in query.split() if token)
+        fts_query = quote_fts(query)
         fts_rows: dict[str, float] = {}
         if fts_query:
             async with self.db.execute(
