@@ -664,20 +664,39 @@ class SqliteDatabase:
             msg = f"Memory {old_id} not found"
             raise ValueError(msg)
 
-        new_id_val = await self.store(
-            new_content,
-            memory_type=memory_type or old.memory_type,
-            project=project or old.project,
-            conversation_id=conversation_id or old.conversation_id,
-            tags=tags if tags is not None else old.tags,
-        )
+        new_id_val = new_id()
+        ts = now_utc()
+        effective_tags = tags if tags is not None else old.tags
+        tags_json = json.dumps(effective_tags) if effective_tags else None
+        embedding = self.embed(new_content)
 
+        await self.db.execute(
+            """
+            INSERT INTO memories
+                (id, content, memory_type, project, conversation_id, tags, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_id_val,
+                new_content,
+                memory_type or old.memory_type,
+                project or old.project,
+                conversation_id or old.conversation_id,
+                tags_json,
+                ts,
+                ts,
+            ),
+        )
+        await self.db.execute(
+            "INSERT INTO memory_vec (id, embedding) VALUES (?, ?)",
+            (new_id_val, embedding),
+        )
         await self.db.execute(
             """
             INSERT INTO memory_links (from_id, to_id, relation, created_at)
             VALUES (?, ?, 'supersedes', ?)
             """,
-            (new_id_val, old_id, now_utc()),
+            (new_id_val, old_id, ts),
         )
         await self.db.commit()
         return new_id_val
