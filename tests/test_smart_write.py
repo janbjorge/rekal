@@ -38,6 +38,46 @@ async def test_supersede_nonexistent(db: SqliteDatabase) -> None:
         await db.supersede("nonexistent", "New content")
 
 
+async def test_supersede_atomicity(db: SqliteDatabase) -> None:
+    """supersede() is all-or-nothing: link insert failure must roll back the new memory row.
+
+    A SQLite trigger raises an error when a 'supersedes' link is inserted,
+    simulating a real mid-transaction failure without any mocking.
+    The new memory row must not be committed when the operation fails.
+    """
+    old_id = await db.store("old content", memory_type="fact")
+
+    # Install a real SQLite trigger that rejects 'supersedes' link inserts.
+    await db.db.execute(
+        """
+        CREATE TRIGGER reject_supersedes
+        BEFORE INSERT ON memory_links
+        WHEN NEW.relation = 'supersedes'
+        BEGIN
+            SELECT RAISE(FAIL, 'trigger: supersedes link rejected');
+        END
+        """
+    )
+    await db.db.commit()
+
+    with pytest.raises(Exception, match="supersedes link rejected"):
+        await db.supersede(old_id, "new content")
+
+    # The interrupted supersede left uncommitted rows in the pending transaction.
+    # Rolling back clears them — confirming no partial commit occurred.
+    await db.db.rollback()
+
+    # Drop the trigger so remaining assertions use normal DB behaviour.
+    await db.db.execute("DROP TRIGGER reject_supersedes")
+    await db.db.commit()
+
+    # The new memory must NOT exist — all inserts share one transaction in supersede().
+    cursor = await db.db.execute("SELECT COUNT(*) FROM memories WHERE content = 'new content'")
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == 0, "New memory must not be persisted when link insert fails"
+
+
 async def test_add_memory_link(db: SqliteDatabase) -> None:
     mid1 = await db.store("First")
     mid2 = await db.store("Second")
