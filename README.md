@@ -2,7 +2,9 @@
 
 **Long-term memory for LLMs. One SQLite file, no cloud, no API keys.**
 
-rekal is an [MCP](https://modelcontextprotocol.io) server that gives Claude Code persistent memory across sessions. Memories are stored locally in SQLite and retrieved with hybrid search (BM25 keywords + vector semantics + recency decay). Nothing leaves your machine.
+rekal is an [MCP](https://modelcontextprotocol.io) server that gives AI coding agents persistent memory across sessions. Memories are stored locally in SQLite and retrieved with hybrid search (BM25 keywords + vector semantics + recency decay). Nothing leaves your machine.
+
+Works with any MCP-capable agent: [Claude Code](#setup--claude-code), [Codex CLI](#setup--codex-cli), [OpenCode](#setup--opencode).
 
 ```
 Session 1:   "I prefer Ruff over Black"  → memory_store(...)
@@ -21,7 +23,7 @@ uv tool install rekal
 
 Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db`.
 
-## Setup
+## Setup — Claude Code
 
 Three steps: add the MCP server, install the plugin, and disable built-in memory.
 
@@ -69,6 +71,64 @@ claude plugin install rekal-skills@rekal
 | `rekal-save` | `/rekal-save` or auto on session end | Deduplicates and stores durable knowledge from the conversation |
 | `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
+
+## Setup — Codex CLI
+
+One step. rekal is a standard MCP stdio server — no plugin system, no competing memory to disable ([Codex memories are off by default](https://developers.openai.com/codex/memories)).
+
+Add to `~/.codex/config.toml` ([Codex MCP docs](https://developers.openai.com/codex/mcp)):
+
+```toml
+[mcp_servers.rekal]
+command = "rekal"
+
+# optional: scope all memories to a project automatically
+[mcp_servers.rekal.env]
+REKAL_PROJECT = "my-project"
+```
+
+Instruct the agent to call `memory_build_context` at session start. Add to your project's `AGENTS.md`:
+
+```markdown
+Call memory_build_context with your current task before exploring the codebase.
+```
+
+> **If you have enabled Codex memories** (`memories = true` in `~/.codex/config.toml`): disable them to avoid competing memory instructions.
+> ```toml
+> [features]
+> memories = false
+> ```
+
+## Setup — OpenCode
+
+One step. OpenCode has no built-in memory system — rekal plugs in cleanly with no conflicts.
+
+Add to `opencode.jsonc` in your project root ([OpenCode MCP docs](https://opencode.ai/docs/mcp-servers/)):
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "rekal": {
+      "type": "local",
+      "command": ["rekal"],
+      "enabled": true,
+      "environment": {
+        "REKAL_PROJECT": "my-project"
+      }
+    }
+  }
+}
+```
+
+OpenCode does **not** auto-read `AGENTS.md` — you must list instruction files explicitly ([OpenCode config docs](https://opencode.ai/docs/config/)). Add to your `opencode.jsonc`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"]
+}
+```
 
 ## Tools
 
@@ -167,7 +227,7 @@ scoring:
 - **sqlite-vec extension** — vector search in the same process, no separate vector DB
 - **Sub-millisecond** — local disk I/O, no network round-trips
 
-## Troubleshooting
+## Troubleshooting — Claude Code
 
 ### Agent still writes to MEMORY.md
 
