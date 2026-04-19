@@ -32,6 +32,7 @@ MCP Client
 - Tool modules in `adapters/tools/` are thin wrappers. They register MCP tools via `@mcp.tool()` and call methods on `SqliteDatabase`.
 - `mcp_adapter.py` creates the FastMCP server, manages lifespan, and imports tool modules so they register.
 - Adding a new tool = add a method to `SqliteDatabase` + add a thin tool wrapper in the appropriate `tools/*.py` file.
+- **No dynamic SQL.** SQL strings must be static literals. No f-strings, no string concatenation, no `%` formatting to build queries. Use subqueries and parameterized `?` placeholders instead.
 
 ## Python style — modern, strict, no shortcuts
 

@@ -330,13 +330,14 @@ class SqliteDatabase:
     ) -> list[MemoryResult]:
         embedding = self.embed(query)
 
-        # Vector search — get candidate IDs + distances
+        # Vector search — get candidate IDs + distances, exclude superseded
         vec_rows: dict[str, float] = {}
         async with self.db.execute(
             """
             SELECT id, distance
             FROM memory_vec
             WHERE embedding MATCH ? AND k = ?
+            AND id NOT IN (SELECT to_id FROM memory_links WHERE relation = 'supersedes')
             ORDER BY distance
             """,
             (embedding, limit * 3),
@@ -344,7 +345,7 @@ class SqliteDatabase:
             async for row in cursor:
                 vec_rows[row["id"]] = row["distance"]
 
-        # FTS search — get candidate IDs + BM25 scores
+        # FTS search — get candidate IDs + BM25 scores, exclude superseded
         fts_query = quote_fts(query)
         fts_rows: dict[str, float] = {}
         if fts_query:
@@ -354,6 +355,7 @@ class SqliteDatabase:
                 FROM memories_fts
                 JOIN memories m ON m.rowid = memories_fts.rowid
                 WHERE memories_fts MATCH ?
+                AND m.id NOT IN (SELECT to_id FROM memory_links WHERE relation = 'supersedes')
                 ORDER BY memories_fts.rank
                 LIMIT ?
                 """,
@@ -367,20 +369,8 @@ class SqliteDatabase:
         if not candidate_ids:
             return []
 
-        # Exclude superseded memories — only check candidates, not the whole table
-        placeholders = ",".join("?" * len(candidate_ids))
-        superseded_ids: set[str] = set()
-        async with self.db.execute(
-            f"SELECT to_id FROM memory_links WHERE relation = 'supersedes' AND to_id IN ({placeholders})",
-            list(candidate_ids),
-        ) as cursor:
-            async for row in cursor:
-                superseded_ids.add(row["to_id"])
-
         scored: list[tuple[float, MemoryResult]] = []
         for cid in candidate_ids:
-            if cid in superseded_ids:
-                continue
             mem = await self.get(cid)
             if mem is None:
                 continue  # pragma: no cover
