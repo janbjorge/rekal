@@ -33,7 +33,7 @@ async def memory_store(
     conversation_id: Annotated[
         str | None, Field(description="ID of the conversation this memory belongs to")
     ] = None,
-    tags: Annotated[list[str] | None, Field(description="Tags for categorization")] = None,
+    tags: Annotated[list[str] | None, Field(description='Tags for categorization, as a JSON array of strings e.g. ["auth", "jwt"]')] = None,
 ) -> str:
     """Store a new memory. Returns the memory ID."""
     db = ctx.request_context.lifespan_context.db
@@ -125,7 +125,7 @@ async def memory_update(
     content: Annotated[
         str | None, Field(description="New text content (re-embeds the memory)")
     ] = None,
-    tags: Annotated[list[str] | None, Field(description="New tags (replaces existing)")] = None,
+    tags: Annotated[list[str] | None, Field(description='New tags (replaces existing), as a JSON array of strings e.g. ["auth", "jwt"]')] = None,
     memory_type: Annotated[MemoryType | None, Field(description="New memory type")] = None,
 ) -> str:
     """Update an existing memory's content, tags, or type."""

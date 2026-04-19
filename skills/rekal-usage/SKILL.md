@@ -124,15 +124,34 @@ Use supersede, NOT delete + store. Supersede preserves history via links.
 | `context` | Current project state (decays via recency) | `"Rewriting payment service from REST to gRPC, ~60% done"` |
 | `episode` | Notable event, debugging session | `"OOM in parser traced to unbounded LRU cache — fixed by adding maxsize=1000"` |
 
-### Content rules
+### Content rules — distill + compress, always
 
-Content must be **self-contained**. A fresh agent in a new session with zero conversation context must understand it.
+**Never store raw dialogue, conversation turns, or verbose text.**
+
+Distill to the durable fact, then apply caveman-style compression:
+
+**Drop:** articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries, hedging (might/could/maybe). Replace "in order to" → "to". Remove "you should", "make sure to", "remember to" — state actions directly. Merge redundant points.
+
+**Keep exact:** technical terms, proper nouns, version numbers, values, reasons, causality (`X → Y`).
 
 ```
-Good: "User prefers Ruff over Black for formatting because it's faster and handles import sorting in one tool"
-Bad:  "Use Ruff"                    — no reasoning, too terse
-Bad:  "As discussed, switch to Ruff" — references conversation, not self-contained
-Bad:  "The formatter thing"          — meaningless without context
+BAD:  "User said yeah I think maybe we could try using Python for this"
+GOOD: "Prefer Python for project"
+
+BAD:  "So we went back and forth and eventually decided to use Postgres because
+       the team already knows it and the data is relational anyway"
+GOOD: "DB: Postgres. Team familiar, data relational."
+
+BAD:  "User prefers Ruff over Black for formatting because it's faster and handles import sorting in one tool"
+GOOD: "Ruff > Black. Faster + handles import sort."
+```
+
+One memory = one distilled, compressed fact. 1-2 sentences max. Must be **self-contained** — fresh agent with zero context must understand it.
+
+```
+Bad:  "Use Ruff"                     — no reasoning
+Bad:  "As discussed, switch to Ruff" — references lost conversation
+Bad:  "The formatter thing"          — meaningless
 ```
 
 ## Updating and linking
