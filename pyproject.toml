@@ -12,13 +12,19 @@ requires-python = ">=3.11"
 authors = [{ name = "Jan Bjorge" }]
 keywords = ["mcp", "memory", "llm", "sqlite", "vector-search"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+    "Typing :: Typed",
 ]
 dependencies = [
     "mcp[cli]>=1.0.0",
