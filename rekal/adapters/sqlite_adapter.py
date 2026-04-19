@@ -367,10 +367,12 @@ class SqliteDatabase:
         if not candidate_ids:
             return []
 
-        # Exclude superseded memories (they appear as to_id in supersedes links)
+        # Exclude superseded memories — only check candidates, not the whole table
+        placeholders = ",".join("?" * len(candidate_ids))
         superseded_ids: set[str] = set()
         async with self.db.execute(
-            "SELECT to_id FROM memory_links WHERE relation = 'supersedes'"
+            f"SELECT to_id FROM memory_links WHERE relation = 'supersedes' AND to_id IN ({placeholders})",
+            list(candidate_ids),
         ) as cursor:
             async for row in cursor:
                 superseded_ids.add(row["to_id"])
