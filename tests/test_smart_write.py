@@ -75,6 +75,30 @@ async def test_supersede_nonexistent(db: SqliteDatabase) -> None:
         await db.supersede("nonexistent", "New content")
 
 
+async def test_superseded_memory_excluded_from_search(db: SqliteDatabase) -> None:
+    # Old memory must not appear in search results after being superseded.
+    old_id = await db.store("Use Black for formatting")
+    new_id = await db.supersede(old_id, "Use Ruff for formatting")
+
+    results = await db.search("formatting", weights=ScoringWeights())
+    result_ids = {r.id for r in results}
+    assert old_id not in result_ids
+    assert new_id in result_ids
+
+
+async def test_supersede_chain_only_latest_returned(db: SqliteDatabase) -> None:
+    # A → supersedes → B → supersedes → C: only A should be returned.
+    id_c = await db.store("v1 content")
+    id_b = await db.supersede(id_c, "v2 content")
+    id_a = await db.supersede(id_b, "v3 content")
+
+    results = await db.search("content", weights=ScoringWeights())
+    result_ids = {r.id for r in results}
+    assert id_c not in result_ids
+    assert id_b not in result_ids
+    assert id_a in result_ids
+
+
 async def test_add_memory_link(db: SqliteDatabase) -> None:
     mid1 = await db.store("First")
     mid2 = await db.store("Second")

@@ -367,8 +367,18 @@ class SqliteDatabase:
         if not candidate_ids:
             return []
 
+        # Exclude superseded memories (they appear as to_id in supersedes links)
+        superseded_ids: set[str] = set()
+        async with self.db.execute(
+            "SELECT to_id FROM memory_links WHERE relation = 'supersedes'"
+        ) as cursor:
+            async for row in cursor:
+                superseded_ids.add(row["to_id"])
+
         scored: list[tuple[float, MemoryResult]] = []
         for cid in candidate_ids:
+            if cid in superseded_ids:
+                continue
             mem = await self.get(cid)
             if mem is None:
                 continue  # pragma: no cover
