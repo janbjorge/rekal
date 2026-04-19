@@ -119,7 +119,8 @@ BAD:  "So we went back and forth and eventually decided to use Postgres because 
        the team already knows it and the data is relational anyway"
 GOOD: "DB: Postgres. Team familiar, data relational."
 
-BAD:  "User prefers Ruff over Black for formatting because it's faster and handles import sorting in one tool"
+BAD:  "User prefers Ruff over Black for formatting because it's faster and \
+       handles import sorting in one tool"
 GOOD: "Ruff > Black. Faster + handles import sort."
 ```
 
