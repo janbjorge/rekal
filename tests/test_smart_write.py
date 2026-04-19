@@ -8,29 +8,66 @@ from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.scoring import ScoringWeights
 
 
-async def test_supersede(db: SqliteDatabase) -> None:
-    old_id = await db.store("Python 3.11 is latest", memory_type="fact", project="py")
-    new_id = await db.supersede(old_id, "Python 3.14 is latest")
-
+async def test_supersede_inherits_fields(db: SqliteDatabase) -> None:
+    # All unspecified fields must be copied from the old memory.
+    old_id = await db.store(
+        "Old", memory_type="fact", project="py", tags=["a", "b"], conversation_id="conv-1"
+    )
+    new_id = await db.supersede(old_id, "New")
     new_mem = await db.get(new_id)
     assert new_mem is not None
-    assert new_mem.content == "Python 3.14 is latest"
+    assert new_mem.content == "New"
     assert new_mem.memory_type == "fact"
     assert new_mem.project == "py"
-
-    # Check link
-    related = await db.memory_related(new_id)
-    assert any(r["relation"] == "supersedes" and r["id"] == old_id for r in related)
+    assert new_mem.tags == ["a", "b"]
+    assert new_mem.conversation_id == "conv-1"
 
 
-async def test_supersede_with_overrides(db: SqliteDatabase) -> None:
-    old_id = await db.store("Old content", memory_type="fact", tags=["old"])
-    new_id = await db.supersede(old_id, "New content", memory_type="preference", tags=["new"])
-
+async def test_supersede_override_all_fields(db: SqliteDatabase) -> None:
+    old_id = await db.store(
+        "Old", memory_type="fact", project="p1", tags=["old"], conversation_id="c1"
+    )
+    new_id = await db.supersede(
+        old_id, "New", memory_type="preference", project="p2", tags=["new"], conversation_id="c2"
+    )
     new_mem = await db.get(new_id)
     assert new_mem is not None
     assert new_mem.memory_type == "preference"
+    assert new_mem.project == "p2"
     assert new_mem.tags == ["new"]
+    assert new_mem.conversation_id == "c2"
+
+
+async def test_supersede_explicit_empty_tags_not_inherited(db: SqliteDatabase) -> None:
+    # tags=[] must not fall back to old tags — [] is a valid explicit value.
+    old_id = await db.store("Old", tags=["keep-me"])
+    new_id = await db.supersede(old_id, "New", tags=[])
+    new_mem = await db.get(new_id)
+    assert new_mem is not None
+    assert new_mem.tags == []
+
+
+async def test_supersede_old_memory_preserved(db: SqliteDatabase) -> None:
+    # supersede() must not delete the old memory.
+    old_id = await db.store("Old")
+    await db.supersede(old_id, "New")
+    assert await db.get(old_id) is not None
+
+
+async def test_supersede_link_direction(db: SqliteDatabase) -> None:
+    # Link must go from new → old with relation 'supersedes'.
+    old_id = await db.store("Old")
+    new_id = await db.supersede(old_id, "New")
+    cursor = await db.db.execute(
+        """
+        SELECT COUNT(*) FROM memories m
+        JOIN memory_links l ON l.from_id = m.id
+        WHERE m.id = ? AND l.to_id = ? AND l.relation = 'supersedes'
+        """,
+        (new_id, old_id),
+    )
+    row = await cursor.fetchone()
+    assert row is not None and row[0] == 1
 
 
 async def test_supersede_nonexistent(db: SqliteDatabase) -> None:
