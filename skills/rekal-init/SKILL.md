@@ -12,7 +12,15 @@ allowed-tools: Read Glob Grep mcp__rekal__memory_search mcp__rekal__memory_store
 
 Bootstrap rekal memory from a codebase.
 
-**Target: 40-80 memories for a substantial project.** A project with 10+ source modules, multiple ADRs, CI pipelines, and domain concepts should yield 50+ memories. If you finish with fewer than 30, you under-extracted — go back and scan deeper.
+## HARD REQUIREMENTS — read before starting
+
+1. **Target: 40-80 memories** for a substantial project. Fewer than 30 = failure, go back and extract more.
+2. **You MUST execute Tier 4** (source code scanning). This is not optional. Most memories come from here.
+3. **You MUST run every Grep command** listed in Tier 4c. Each grep that returns results = at least 1 memory.
+4. **You MUST store at least 1 memory per source module** found in the codebase.
+5. **You MUST run the Step 7 self-check** before reporting. If under 30, loop back.
+
+Common failure: agent reads docs + config (Tiers 1-2), stores ~20 memories, skips Tiers 4-5 entirely. **DO NOT DO THIS.**
 
 Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves. Every module, every domain concept, every non-obvious pattern deserves a memory.
 
@@ -82,42 +90,47 @@ mypy.ini, pyrightconfig.json, tox.ini
 
 Store: project layout overview (which dirs hold what), entry points and how app boots, linter/formatter config summary.
 
-### Tier 4 — Source code structure → expect 15-30 memories (THIS IS THE BIG ONE)
+### Tier 4 — Source code structure → MANDATORY, expect 15-30 memories
 
-Scan source modules to extract architecture that lives in code, not docs. **This tier produces the most memories.** Do not rush through it. Spend real time here.
+**THIS IS THE MOST IMPORTANT TIER. You MUST execute every step below. Do NOT skip to Step 3 after reading docs and config. The majority of useful memories come from here.**
 
-**Strategy:** For each top-level package/directory, read `__init__.py` (or `index.ts`, `mod.rs`, etc.) and 2-3 key files per module. Use Grep to find patterns across the codebase rather than reading every file.
+Scan source modules to extract architecture that lives in code, not docs.
 
-**Minimum: 1 memory per source module/package.** A project with 8 modules → at least 8 memories from this tier alone. Aim for 2-3 per module (what it does, key types, how it connects).
+**Procedure — execute ALL of these in order:**
+
+**4a. Discover all modules.** Run these Glob/Grep commands. Do not skip any.
 
 ```
-# Module structure — read __init__.py files to understand public APIs
 Glob: "src/**/__init__.py", "<pkg>/**/__init__.py"
-
-# Class and type definitions — grep for patterns
-Grep: "^class ", "^def ", "^async def " in key modules
-Grep: "BaseModel", "dataclass", "TypedDict", "Protocol" for domain models
-Grep: "router", "blueprint", "app.route", "@app.", "@router." for API surface
-
-# Database/ORM — schema reveals domain
-Grep: "CREATE TABLE", "class.*Model", "Table(", "mapped_column"
-Read: migration files (latest 3-5), schema files, models directories
-
-# Error/exception types — reveal domain boundaries
-Grep: "class.*Error", "class.*Exception", "raise "
-
-# Event systems, message queues, signals
-Grep: "subscribe", "publish", "emit", "Signal", "Stream", "on_event"
-
-# Key constants and enums — reveal domain vocabulary
-Grep: "class.*Enum", "Literal\\[", "STATUS_", "TYPE_"
+Glob: "src/*/", "<pkg>/*/"
 ```
 
-**Per-module, extract:**
-- What the module does (from docstrings, __init__.py, README in the dir)
-- Key classes/types and their roles
-- How it connects to other modules (imports, dependency injection)
-- Non-obvious patterns (custom decorators, middleware, hooks)
+List every module found. This is your checklist — you MUST store at least 1 memory per module.
+
+**4b. For EACH module found in 4a**, read its `__init__.py` and 1-2 key files (the largest .py/.ts/.rs files, or files named models/routes/handlers/schema). Store a memory describing: what it does, key types, how it connects to other modules.
+
+**4c. Grep across entire codebase for domain patterns.** Run ALL of these:
+
+```
+Grep: "^class " — list all classes, store memory grouping them by purpose
+Grep: "BaseModel|dataclass|TypedDict|Protocol" — find domain models, store summary
+Grep: "router|blueprint|app.route|@app.|@router." — find API surface, store summary
+Grep: "CREATE TABLE|class.*Table|mapped_column" — find DB schema, store summary
+Grep: "class.*Error|class.*Exception" — find error types, store summary
+Grep: "class.*Enum|Literal\[" — find enums/constants, store as domain glossary
+Grep: "subscribe|publish|emit|Signal|Stream|on_event" — find event patterns, store if found
+```
+
+Each grep that returns results → at least 1 memory summarizing findings.
+
+**4d. Read model/schema files.** Find and read:
+- Files in directories named `models/`, `schemas/`, `types/`, `entities/`
+- Migration files (latest 3-5)
+- Proto files, GraphQL schemas, OpenAPI specs
+
+Store: entity relationships, key fields, constraints worth knowing.
+
+**If you finish Tier 4 with fewer than 10 memories, you skipped steps. Go back and re-execute 4a-4d.**
 
 ### Tier 5 — Test structure and patterns → expect 2-5 memories
 
@@ -278,29 +291,33 @@ Summarize what was captured:
 >
 > Run `/rekal-hygiene` later to clean up any issues that emerge.
 
-## Step 7: Self-check — did you extract enough?
+## Step 7: Self-check — MANDATORY, do NOT skip
 
-After Step 6, count memories stored. Apply this checklist:
+After Step 6, count memories stored. **You MUST run this checklist before finishing.**
 
+**Check 1: Total count.**
 ```
-Total memories < 30 on a project with 5+ source modules?
-├── YES → You under-extracted. Go back to Tier 4.
-│         Read more module files. Grep for patterns you missed.
-│         Each module should have at least 1 memory.
-└── NO  → Continue to report.
-
-Missing any of these categories entirely?
-├── Module map         → Go scan __init__.py and directory structure
-├── Domain model       → Go grep for models, schemas, enums
-├── API surface        → Go grep for routes, controllers, handlers
-├── Data layer         → Go grep for tables, migrations, ORM models
-├── Error handling     → Go grep for exception classes
-├── Event patterns     → Go grep for pub/sub, streams, signals
-├── Domain glossary    → Go read README domain section, enum values
-└── All present        → Good. Continue to report.
+memories_stored >= 30 on a project with 5+ source modules?
+├── NO  → STOP. You under-extracted. Execute Tier 4 steps 4a-4d again.
+│         You likely skipped the grep commands or didn't read module files.
+│         Go back NOW. Do not report until you hit 30+.
+└── YES → Continue to Check 2.
 ```
 
-**Do not skip this step.** The whole point of init is comprehensive coverage. A 20-memory init on a 50-module project is a failure.
+**Check 2: Category coverage.** For EACH category below, verify you stored at least 1 memory. If missing, execute the fix immediately — do not just note it.
+
+```
+□ Module map (what each package/dir does)     → missing? Run Tier 4a-4b again
+□ Domain model (entities, relationships)       → missing? Grep BaseModel/dataclass, read models/
+□ API surface (routes, endpoints, handlers)    → missing? Grep router/app.route, read route files
+□ Data layer (tables, schema, migrations)      → missing? Grep CREATE TABLE, read migrations
+□ Error handling (exception hierarchy)         → missing? Grep class.*Error
+□ Conventions (style, linting, naming)         → missing? Re-read CLAUDE.md, linter configs
+□ CI/CD pipeline                               → missing? Re-read workflow files
+□ Domain glossary (business terms)             → missing? Grep Enum, read README domain section
+```
+
+**A 20-memory init on a large project means Tier 4 was skipped. This is the #1 failure mode. Fix it.**
 
 ## Boundaries
 
