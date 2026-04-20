@@ -98,13 +98,36 @@ Store durable knowledge as you work — do not batch until session end:
 - User describes a workflow or procedure → store
 - Decision made with reasoning → store
 
+### Distill before storing — mandatory
+
+NEVER store raw dialogue, conversation turns, or verbose text. \
+Extract the durable fact, then compress:
+
+- Drop: articles (a/an/the), filler (just/really/basically/actually/simply), \
+pleasantries, hedging (might/could/maybe)
+- Replace verbose phrases: "in order to" → "to", "make sure to" → ensure
+- Use short synonyms: big not extensive, fix not "implement a solution for"
+- Fragments OK. State actions directly — no "you should", "remember to"
+- Merge redundant points that say the same thing differently
+- Keep exact: technical terms, proper nouns, version numbers, values, causality (X because Y)
+
+One memory = one distilled fact. 1-2 sentences max.
+
+```
+BAD:  "User said yeah I think maybe we could try using Python for this project"
+GOOD: "Prefer Python for project"
+
+BAD:  "So we eventually decided to use Postgres because the team knows it and data is relational"
+GOOD: "DB: Postgres. Team familiar, data relational."
+```
+
 ALWAYS call memory_search before storing. If the same topic exists, \
 call memory_supersede instead of creating a duplicate. Two memories about \
 the same topic must never coexist.
 
 ### memory_store parameters
 
-- content: Self-contained text. A fresh agent with zero context must understand it.
+- content: Self-contained distilled fact. A fresh agent with zero context must understand it.
 - memory_type: One of fact, preference, procedure, context, episode.
 - tags: 2-4 specific tags. Not "code" or "project".
 - project: Set if project-specific. Omit for global knowledge.
