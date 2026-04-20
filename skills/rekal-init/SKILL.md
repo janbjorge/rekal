@@ -12,17 +12,25 @@ allowed-tools: Read Glob Grep mcp__rekal__memory_search mcp__rekal__memory_store
 
 Bootstrap rekal memory from a codebase. Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves.
 
+## Requirements
+
+1. **Execute ALL steps including Tier 4** (source code scanning). Do NOT stop after reading docs and config.
+2. **Run every Grep command** in Tier 4. Each grep with results → at least 1 memory.
+3. **Store at least 1 memory per source module** discovered in the codebase.
+4. **Read high-signal docs first** (CLAUDE.md, AGENTS.md) — they reveal what else to scan.
+5. **Follow breadcrumbs** — if docs reference other files or dirs, read those too.
+6. **Run the self-check** in Step 7 before finishing.
+7. **On a fresh DB, skip dedup searches** — nothing to dedup against. Store directly.
+
+Common failure: agent reads docs + config, stores ~20 memories, skips source code scanning entirely. **Do not do this.**
+
 ## Step 0: Pre-flight
 
 ```python
 memory_health()
 ```
 
-Report current state. If the project already has memories, warn:
-
-> "Found 47 memories for project 'backend'. This will add new knowledge and supersede outdated entries. Continue?"
-
-Wait for confirmation before proceeding. For a fresh database, continue automatically.
+Report current state. If the project already has memories, warn and wait for confirmation. For a fresh database, continue automatically.
 
 ## Step 1: Identify the project
 
@@ -36,7 +44,7 @@ memory_set_project(project="<name>")
 
 Search for these files in priority order. Read every file that exists. Skip what's missing.
 
-### Tier 1 — High-signal project docs (read fully)
+### Tier 1 — High-signal project docs (read fully, read FIRST)
 
 ```
 CLAUDE.md, AGENTS.md, .claude/CLAUDE.md
@@ -44,6 +52,15 @@ README.md, README.rst, README.txt
 CONTRIBUTING.md, ARCHITECTURE.md, DESIGN.md, ADR/*.md
 docs/architecture.md, docs/design.md, docs/conventions.md
 ```
+
+Read these BEFORE other tiers. They frequently reference:
+- Specific directories or modules to pay attention to
+- Conventions not captured in linter configs
+- Domain-specific terminology and concepts
+- Workflows, procedures, and tool preferences
+- Other documentation files worth reading
+
+**Follow the breadcrumbs.** If CLAUDE.md says "read AGENTS.md before doing anything" or references `docs/api-guide.md`, read those files too. If AGENTS.md describes a specific architecture, that's a memory.
 
 ### Tier 2 — Config and dependency manifests (read fully)
 
@@ -57,68 +74,97 @@ docker-compose.yml, Dockerfile
 .env.example, .envrc
 ```
 
+Extract: stack + versions, key deps with purpose, CI pipeline steps, Docker setup, env vars needed.
+
 ### Tier 3 — Structural exploration
 
 ```
 # Directory tree — top 3 levels via Glob
 Glob pattern: "**/*/", max-depth 3
 
-# Entry points
-main.py, app.py, index.ts, main.go, lib.rs, src/main.*
-manage.py, wsgi.py, asgi.py
+# Entry points — look for main/index/app files in src/ and project root
+Glob: "main.*", "app.*", "index.*", "src/main.*", "src/index.*", "cmd/*/main.*"
 
 # Config files that reveal conventions
 .editorconfig, .prettierrc, .eslintrc*, ruff.toml, .ruff.toml
 mypy.ini, pyrightconfig.json, tox.ini
 ```
 
-### Tier 4 — Source code structure (read selectively, not line-by-line)
+Also explore anything Tier 1 docs pointed to — scripts/ dirs, specific modules mentioned by name, etc.
 
-Scan source modules to extract architecture that lives in code, not docs.
+### Tier 4 — Source code structure (MANDATORY)
 
-**Strategy:** For each top-level package/directory, read `__init__.py` (or `index.ts`, `mod.rs`, etc.) and 2-3 key files per module. Use Grep to find patterns across the codebase rather than reading every file.
+**You MUST execute every sub-step below.**
 
-```
-# Module structure — read __init__.py files to understand public APIs
-Glob: "src/**/__init__.py", "<pkg>/**/__init__.py"
+Scan the codebase through an architectural lens. The goal is to map the system's layers — not just list files, but understand what role each piece of code plays.
 
-# Class and type definitions — grep for patterns
-Grep: "^class ", "^def ", "^async def " in key modules
-Grep: "BaseModel", "dataclass", "TypedDict", "Protocol" for domain models
-Grep: "router", "blueprint", "app.route", "@app.", "@router." for API surface
+**4a. Discover all modules/packages:**
 
-# Database/ORM — schema reveals domain
-Grep: "CREATE TABLE", "class.*Model", "Table(", "mapped_column"
-Read: migration files (latest 3-5), schema files, models directories
+Use the directory tree from Tier 3 and the stack from Tier 2 to identify top-level source units (packages, modules, crates, services — whatever the project calls them). Glob for `src/*/` or equivalent. List every module found — store at least 1 memory per module.
 
-# Error/exception types — reveal domain boundaries
-Grep: "class.*Error", "class.*Exception", "raise "
+**4b. Map the architecture by layer:**
 
-# Event systems, message queues, signals
-Grep: "subscribe", "publish", "emit", "Signal", "Stream", "on_event"
+For EACH module from 4a, read its entry/index file and 1-2 key files. Classify what you find and store memories accordingly:
 
-# Key constants and enums — reveal domain vocabulary
-Grep: "class.*Enum", "Literal\\[", "STATUS_", "TYPE_"
-```
+**Domain (entities, value objects, business rules):**
+- Find type/model definitions — look in dirs named `models`, `entities`, `domain`, `types`, `schemas`
+- Find enums and constants — these define domain vocabulary (statuses, categories, roles)
+- Find error/exception types — these define domain boundaries and business rule violations
 
-**Per-module, extract:**
-- What the module does (from docstrings, __init__.py, README in the dir)
-- Key classes/types and their roles
-- How it connects to other modules (imports, dependency injection)
-- Non-obvious patterns (custom decorators, middleware, hooks)
+Store: what entities exist, their relationships, invariants, domain-specific terms.
+
+**Ports (interfaces the domain exposes or depends on):**
+- Find abstract interfaces, contracts, traits — look for dirs named `ports`, `interfaces`, `contracts`
+- Find types named Repository, Service, Gateway, Port, Store — these are usually boundaries
+
+Store: what abstractions exist, which are inbound (driving) vs outbound (driven).
+
+**Adapters (how ports connect to the outside world):**
+
+*Inbound (drive the application):*
+- Find route/handler definitions — HTTP endpoints, GraphQL resolvers, gRPC services, CLI commands
+- Find message consumers/subscribers
+- Look in dirs named `routes`, `controllers`, `handlers`, `adapters`, `api`
+
+*Outbound (driven by the application):*
+- Find persistence implementations — SQL files, ORM models, repository classes
+- Read latest 3-5 migration files and schema definitions
+- Find event/message publishers
+- Find external service client wrappers (HTTP clients, cloud SDK usage)
+
+Store: API surface, persistence strategy, external integrations, event patterns.
+
+**Infrastructure (wiring, config, middleware, startup):**
+- Find DI/wiring configuration
+- Find middleware/interceptor chains
+- Look in dirs named `config`, `infrastructure`, `wire`, `di`
+
+Store: how layers are wired together, middleware chain.
+
+**4c. Read schema files in detail:**
+
+Find and read files in model/schema/entity directories. Read migration files, proto files, GraphQL schemas, OpenAPI specs if they exist.
+
+Store: entity relationships, key fields, constraints worth knowing.
+
+Each discovery → at least 1 memory summarizing findings. Nothing found → skip.
 
 ### Tier 5 — Test structure and patterns
 
 ```
-# Test organization
-Glob: "tests/**/*.py", "test/**/*.py", "**/*_test.py", "**/*_test.go"
-Read: conftest.py, test helpers, fixtures
+# Find test directories and config
+Glob: "tests/", "test/", "spec/", "testdata/", "fixtures/"
 
-# What's being tested reveals what matters
-Grep: "def test_", "it(", "describe(" — skim test names for domain concepts
+# Read test setup — fixtures, helpers, factories, shared config
+Look for setup/helper/conftest/factory files in test dirs
+
+# Skim test names for domain concepts — just names, not implementations
 ```
 
-Do NOT read:
+Store: test framework, fixtures/factories, DB/service strategy, parallelization.
+
+### Do NOT read
+
 - Lock files (package-lock.json, uv.lock, Cargo.lock, yarn.lock)
 - Generated files, build artifacts, node_modules, dist/, .git/
 - Binary files, images, fonts
@@ -140,25 +186,44 @@ The cost of a missing memory (user repeats themselves, agent makes wrong assumpt
 
 ### What to extract
 
-| Category | Source files | Example memory |
-|----------|-------------|----------------|
-| **Architecture** | README, ARCHITECTURE, AGENTS.md, source structure | "Three-layer arch: MCP adapter → tool wrappers → SqliteDatabase. All SQL lives in sqlite_adapter.py" |
-| **Module map** | __init__.py, imports, directory structure | "services/ has 6 modules: auth (JWT+RBAC), billing (Stripe), notifications (email+push), search (Elasticsearch), inventory (warehouse ops), reporting (async PDF gen)" |
-| **Domain model** | Models, schemas, migrations, enums | "Core entities: Order (stateful, FSM), Product (immutable after publish), Warehouse (has zones/bins), User (has roles via RBAC). All IDs are NewType UUIDs." |
-| **API surface** | Routes, controllers, gRPC protos | "REST API: /api/v2/ prefix. 47 endpoints across 8 routers. Auth via Bearer JWT. Rate limited 100/min per user." |
-| **Data layer** | ORM models, migrations, raw SQL | "Postgres 15. 34 tables. Key: orders→order_lines→products. Soft deletes on orders. Partitioned by created_at on events table." |
-| **Conventions** | CONTRIBUTING, CLAUDE.md, linter configs | "No underscore prefixes on attributes. Public by default. No mutable globals." |
-| **Dependencies & stack** | pyproject.toml, package.json, Cargo.toml | "Python 3.11+, key deps: mcp[cli], aiosqlite, sqlite-vec, fastembed, pydantic" |
-| **Build & test** | Makefile, CI configs, pyproject.toml | "CI: ruff check, ruff format --check, ty check, pytest 100% coverage required" |
-| **Test patterns** | conftest.py, test structure, fixtures | "Tests use testcontainers for Postgres+Redis. Factory pattern via conftest fixtures. 8 parallel pytest workers split by module." |
-| **Deploy & infra** | Docker, CI/CD, Makefile | "Deploy via git tag vX.Y.Z → CI builds and publishes to PyPI" |
+**Architecture & structure:**
+
+| Category | Source | Example memory |
+|----------|--------|----------------|
+| **Architecture overview** | README, ARCHITECTURE, AGENTS.md | "Hex arch: domain in core/, ports as Protocol classes, adapters in adapters/. DI wires at startup." |
+| **Module map** | __init__.py, directory structure | "services/ has 6 modules: auth, billing, notifications, search, inventory, reporting" |
 | **Project structure** | Directory tree, entry points | "Entry point: rekal/cli.py. MCP server: rekal/adapters/mcp_adapter.py" |
-| **Key decisions** | ADRs, DESIGN.md, README | "Chose SQLite over Postgres for zero-config single-file deployment" |
-| **Workflows** | CONTRIBUTING, Makefile, CI | "PR workflow: branch from main, all CI checks must pass, squash merge" |
-| **Error handling** | Exception classes, error middleware | "Custom exception hierarchy: AppError → {ValidationError, NotFoundError, AuthError}. All caught by error_middleware → JSON error response." |
-| **Event/async patterns** | Message queues, signals, streams | "Redis Streams for async events. 12 event types. Consumers in workers/ dir. Retry with exponential backoff, DLQ after 5 failures." |
-| **Cross-cutting concerns** | Middleware, decorators, mixins | "Auth decorator @require_role('admin') on protected endpoints. Audit logging via middleware on all mutations. Request ID propagated via contextvars." |
-| **Domain glossary** | README, docs, code comments, enums | "Content code = barcode type for warehouse items. Pick = retrieve item from bin. Putaway = store item in bin. Wave = batch of picks optimized for walk path." |
+| **Key decisions** | ADRs, DESIGN.md | "Chose SQLite over Postgres for zero-config single-file deployment" |
+
+**Domain layer:**
+
+| Category | Source | Example memory |
+|----------|--------|----------------|
+| **Domain model** | Models, schemas, enums | "Core entities: Order (stateful, FSM), Product (immutable), Warehouse (has zones/bins). All IDs are NewType UUIDs." |
+| **Domain vocabulary** | Enums, constants, README | "Content code = barcode type. Pick = retrieve from bin. Putaway = store in bin. Wave = batch of picks." |
+| **Domain errors** | Exception classes | "DomainError → {ValidationError, NotFoundError, ConflictError}. Raised in domain, caught by adapters." |
+
+**Ports & adapters:**
+
+| Category | Source | Example memory |
+|----------|--------|----------------|
+| **Inbound ports** | Protocols, ABCs, interfaces | "OrderService protocol: create_order, cancel_order, ship_order. Implemented by OrderServiceImpl." |
+| **Inbound adapters** | Routes, controllers, CLI, consumers | "REST API: /api/v2/ prefix. 47 endpoints across 8 routers. Auth via Bearer JWT." |
+| **Outbound ports** | Repository protocols, gateway ABCs | "OrderRepository protocol: get, save, list_by_status. WarehouseGateway: reserve_stock, release_stock." |
+| **Outbound adapters** | ORM, DB, API clients, publishers | "Postgres 15. 34 tables. Key: orders→order_lines→products. Soft deletes. Redis Streams for events." |
+| **External integrations** | HTTP clients, cloud SDKs | "Stripe adapter for billing. Azure Blob for file uploads. SendGrid for email." |
+
+**Infrastructure & operations:**
+
+| Category | Source | Example memory |
+|----------|--------|----------------|
+| **Wiring / DI** | Container, startup, middleware | "FastAPI Depends for DI. Middleware chain: auth → audit log → error handler → request ID." |
+| **Conventions** | CLAUDE.md, linter configs | "No underscore prefixes. Public by default. No mutable globals." |
+| **Dependencies & stack** | pyproject.toml, package.json | "Python 3.11+, key deps: mcp[cli], aiosqlite, sqlite-vec, fastembed, pydantic" |
+| **Build & CI** | Makefile, CI configs | "CI: ruff check, ruff format --check, ty check, pytest 100% coverage required" |
+| **Test patterns** | conftest.py, fixtures | "Tests use testcontainers for Postgres+Redis. Factory pattern. 8 parallel pytest workers." |
+| **Deploy & infra** | Docker, CI/CD | "Deploy via git tag vX.Y.Z → CI builds and publishes to PyPI" |
+| **Workflows** | CONTRIBUTING, Makefile | "PR workflow: branch from main, all CI checks pass, squash merge" |
 
 ### What NOT to extract
 
@@ -170,13 +235,13 @@ The cost of a missing memory (user repeats themselves, agent makes wrong assumpt
 
 ## Step 4: Deduplicate and store
 
-For EVERY candidate, before storing:
+**On a fresh DB (no existing memories), skip the search step entirely** — there's nothing to dedup against. Store directly. This dramatically speeds up init.
+
+On re-init (memories already exist), search before each store:
 
 ```python
 memory_search(query="<candidate topic>", limit=5)
 ```
-
-Apply:
 
 ```
 Search results?
@@ -223,21 +288,18 @@ Bad:  ["code", "project", "structure"]
 
 Group related candidates. Store in logical order:
 
-1. Project identity and stack
-2. High-level architecture and structure
-3. Module map (what each module/package does)
-4. Domain model and key entities
-5. API surface and routes
-6. Data layer (DB schema, key tables, relationships)
+1. Project identity, stack, and architecture overview
+2. Module map (what each module/package does)
+3. Domain layer: entities, value objects, domain errors, vocabulary
+4. Ports: inbound and outbound interfaces
+5. Adapters: API surface, persistence, external integrations, event patterns
+6. Infrastructure: DI/wiring, middleware, cross-cutting concerns
 7. Conventions and style
 8. Build, test, CI
-9. Test patterns and fixtures
-10. Deploy and infra
-11. Event/async patterns and cross-cutting concerns
-12. Domain glossary
-13. Key decisions (ADRs)
+9. Deploy and infra
+10. Key decisions (ADRs)
 
-This ordering helps if the user interrupts — most valuable knowledge lands first. Groups 3-6 are where large codebases need the most coverage.
+This ordering helps if the user interrupts — domain knowledge (most valuable) lands first.
 
 ## Step 6: Verify and report
 
@@ -260,26 +322,47 @@ Summarize what was captured:
 > - CI: ruff + ty + pytest 100% coverage
 > - Test rules: no mocking, real SQLite, deterministic embeddings
 >
-> Run `/rekal-hygiene` later to clean up any issues that emerge.
+> Run `/rekal-save` at end of future sessions to maintain.
+
+## Step 7: Self-check — MANDATORY
+
+After Step 6, verify you actually executed all tiers.
+
+**Did you execute Tier 4?** If you never ran the Grep commands from 4b or never read module entry files, go back and do it now.
+
+**Category coverage.** For each layer below, check if the codebase has it. If it does and you stored nothing about it, go back and scan:
+
+```
+□ Module map (what each package/dir does)
+□ Domain (entities, value objects, vocabulary, errors)
+□ Ports (abstract interfaces and contracts)
+□ Inbound adapters (routes, CLI, consumers)
+□ Outbound adapters (persistence, API clients, event publishers)
+□ Infrastructure (wiring, middleware)
+□ Conventions (style, linting, naming)
+□ CI/CD pipeline
+```
+
+If a category doesn't exist in the codebase, skip it — only store what's actually there.
 
 ## Boundaries
 
 - **Read-only on the codebase.** Never modify project files.
 - **No secrets.** Skip .env files with real values. Only read .env.example.
-- **Scan source structure, not every line.** Read __init__.py, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently. Goal: understand the shape of each module without reading its internals.
-- **Dedup is mandatory.** Never skip the search-before-store step.
+- **Scan source structure, not every line.** Read module entry files, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently.
+- **Dedup is mandatory on re-init.** On fresh DB, skip dedup.
 - **Ask before overwriting.** If existing memories conflict with what the codebase says, present both and ask which is correct.
-- **Aim for 40-80 memories** on a substantial codebase (10+ modules). 20 is too few — it means you skipped module-level architecture, domain model, API surface, and cross-cutting patterns. If you finish with <30 memories on a large project, go back and scan source code structure more aggressively.
-- **Session-level learning via `/rekal-save`.** Init captures the structural 80%. Runtime discoveries happen via `/rekal-save`.
+- **Execute all tiers.** If you only stored memories from docs and config, you skipped Tier 4. Go back.
+- **Session-level learning via `/rekal-save`.** Init captures the structural baseline. Runtime discoveries happen via `/rekal-save`.
 
 ## Large codebases
 
 For monorepos or projects with 10+ top-level directories:
 
-1. Scan all top-level READMEs and __init__.py files first to build a map
-2. Process ALL areas — don't stop after one module. Aim for 3-5 memories per major module.
+1. Scan all top-level READMEs and module entry files first to build a map
+2. Process ALL areas — don't stop after one module
 3. Report progress after every 10 memories stored
-4. Only ask user to pick focus areas if the codebase has 50+ top-level directories (true monorepo scale)
+4. Only ask user to pick focus areas if 50+ top-level directories (true monorepo scale)
 
 For a typical large project (5-20 modules), scan everything without asking. The user ran init to get comprehensive coverage, not partial.
 
