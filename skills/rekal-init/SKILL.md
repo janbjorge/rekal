@@ -12,17 +12,25 @@ allowed-tools: Read Glob Grep mcp__rekal__memory_search mcp__rekal__memory_store
 
 Bootstrap rekal memory from a codebase. Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves.
 
+## Requirements
+
+1. **Execute ALL steps including Tier 4** (source code scanning). Do NOT stop after reading docs and config.
+2. **Run every Grep command** in Tier 4. Each grep with results → at least 1 memory.
+3. **Store at least 1 memory per source module** discovered in the codebase.
+4. **Read high-signal docs first** (CLAUDE.md, AGENTS.md) — they reveal what else to scan.
+5. **Follow breadcrumbs** — if docs reference other files or dirs, read those too.
+6. **Run the self-check** in Step 7 before finishing.
+7. **On a fresh DB, skip dedup searches** — nothing to dedup against. Store directly.
+
+Common failure: agent reads docs + config, stores ~20 memories, skips source code scanning entirely. **Do not do this.**
+
 ## Step 0: Pre-flight
 
 ```python
 memory_health()
 ```
 
-Report current state. If the project already has memories, warn:
-
-> "Found 47 memories for project 'backend'. This will add new knowledge and supersede outdated entries. Continue?"
-
-Wait for confirmation before proceeding. For a fresh database, continue automatically.
+Report current state. If the project already has memories, warn and wait for confirmation. For a fresh database, continue automatically.
 
 ## Step 1: Identify the project
 
@@ -36,7 +44,7 @@ memory_set_project(project="<name>")
 
 Search for these files in priority order. Read every file that exists. Skip what's missing.
 
-### Tier 1 — High-signal project docs (read fully)
+### Tier 1 — High-signal project docs (read fully, read FIRST)
 
 ```
 CLAUDE.md, AGENTS.md, .claude/CLAUDE.md
@@ -44,6 +52,15 @@ README.md, README.rst, README.txt
 CONTRIBUTING.md, ARCHITECTURE.md, DESIGN.md, ADR/*.md
 docs/architecture.md, docs/design.md, docs/conventions.md
 ```
+
+Read these BEFORE other tiers. They frequently reference:
+- Specific directories or modules to pay attention to
+- Conventions not captured in linter configs
+- Domain-specific terminology and concepts
+- Workflows, procedures, and tool preferences
+- Other documentation files worth reading
+
+**Follow the breadcrumbs.** If CLAUDE.md says "read AGENTS.md before doing anything" or references `docs/api-guide.md`, read those files too. If AGENTS.md describes a specific architecture, that's a memory.
 
 ### Tier 2 — Config and dependency manifests (read fully)
 
@@ -56,6 +73,8 @@ docker-compose.yml, Dockerfile
 .github/workflows/*.yml, .gitlab-ci.yml, Jenkinsfile
 .env.example, .envrc
 ```
+
+Extract: stack + versions, key deps with purpose, CI pipeline steps, Docker setup, env vars needed.
 
 ### Tier 3 — Structural exploration
 
@@ -72,53 +91,57 @@ manage.py, wsgi.py, asgi.py
 mypy.ini, pyrightconfig.json, tox.ini
 ```
 
-### Tier 4 — Source code structure (read selectively, not line-by-line)
+Also explore anything Tier 1 docs pointed to — scripts/ dirs, specific modules mentioned by name, etc.
 
-Scan source modules to extract architecture that lives in code, not docs.
+### Tier 4 — Source code structure (MANDATORY)
 
-**Strategy:** For each top-level package/directory, read `__init__.py` (or `index.ts`, `mod.rs`, etc.) and 2-3 key files per module. Use Grep to find patterns across the codebase rather than reading every file.
+**You MUST execute every sub-step below.**
+
+**4a. Discover all modules:**
 
 ```
-# Module structure — read __init__.py files to understand public APIs
 Glob: "src/**/__init__.py", "<pkg>/**/__init__.py"
-
-# Class and type definitions — grep for patterns
-Grep: "^class ", "^def ", "^async def " in key modules
-Grep: "BaseModel", "dataclass", "TypedDict", "Protocol" for domain models
-Grep: "router", "blueprint", "app.route", "@app.", "@router." for API surface
-
-# Database/ORM — schema reveals domain
-Grep: "CREATE TABLE", "class.*Model", "Table(", "mapped_column"
-Read: migration files (latest 3-5), schema files, models directories
-
-# Error/exception types — reveal domain boundaries
-Grep: "class.*Error", "class.*Exception", "raise "
-
-# Event systems, message queues, signals
-Grep: "subscribe", "publish", "emit", "Signal", "Stream", "on_event"
-
-# Key constants and enums — reveal domain vocabulary
-Grep: "class.*Enum", "Literal\\[", "STATUS_", "TYPE_"
+Glob: "src/*/", "<pkg>/*/"
 ```
 
-**Per-module, extract:**
-- What the module does (from docstrings, __init__.py, README in the dir)
-- Key classes/types and their roles
-- How it connects to other modules (imports, dependency injection)
-- Non-obvious patterns (custom decorators, middleware, hooks)
+List every module found. This is your checklist — store at least 1 memory per module.
+
+**4b. Read each module's key files:**
+
+For EACH module from 4a, read its `__init__.py` and 1-2 key files (largest files, or files named models/routes/handlers/schema). Store a memory: what it does, key types, how it connects to other modules.
+
+**4c. Grep across the codebase for domain patterns. Run ALL of these:**
+
+```
+Grep: "^class " — list all classes, group by purpose
+Grep: "BaseModel|dataclass|TypedDict|Protocol" — domain models
+Grep: "router|blueprint|app.route|@app.|@router." — API surface
+Grep: "CREATE TABLE|class.*Table|mapped_column" — DB schema
+Grep: "class.*Error|class.*Exception" — error types
+Grep: "class.*Enum|Literal\[" — enums/constants, domain vocabulary
+Grep: "subscribe|publish|emit|Signal|Stream|on_event" — event patterns
+```
+
+Each grep with results → at least 1 memory summarizing findings. No results → skip.
+
+**4d. Read model/schema files:**
+
+Find and read files in directories named `models/`, `schemas/`, `types/`, `entities/`. Read latest 3-5 migration files. Read proto files, GraphQL schemas, OpenAPI specs if they exist.
+
+Store: entity relationships, key fields, constraints worth knowing.
 
 ### Tier 5 — Test structure and patterns
 
 ```
-# Test organization
 Glob: "tests/**/*.py", "test/**/*.py", "**/*_test.py", "**/*_test.go"
 Read: conftest.py, test helpers, fixtures
-
-# What's being tested reveals what matters
 Grep: "def test_", "it(", "describe(" — skim test names for domain concepts
 ```
 
-Do NOT read:
+Store: test framework, fixtures, DB strategy, parallelization.
+
+### Do NOT read
+
 - Lock files (package-lock.json, uv.lock, Cargo.lock, yarn.lock)
 - Generated files, build artifacts, node_modules, dist/, .git/
 - Binary files, images, fonts
@@ -170,13 +193,13 @@ The cost of a missing memory (user repeats themselves, agent makes wrong assumpt
 
 ## Step 4: Deduplicate and store
 
-For EVERY candidate, before storing:
+**On a fresh DB (no existing memories), skip the search step entirely** — there's nothing to dedup against. Store directly. This dramatically speeds up init.
+
+On re-init (memories already exist), search before each store:
 
 ```python
 memory_search(query="<candidate topic>", limit=5)
 ```
-
-Apply:
 
 ```
 Search results?
@@ -237,7 +260,7 @@ Group related candidates. Store in logical order:
 12. Domain glossary
 13. Key decisions (ADRs)
 
-This ordering helps if the user interrupts — most valuable knowledge lands first. Groups 3-6 are where large codebases need the most coverage.
+This ordering helps if the user interrupts — most valuable knowledge lands first.
 
 ## Step 6: Verify and report
 
@@ -260,26 +283,46 @@ Summarize what was captured:
 > - CI: ruff + ty + pytest 100% coverage
 > - Test rules: no mocking, real SQLite, deterministic embeddings
 >
-> Run `/rekal-hygiene` later to clean up any issues that emerge.
+> Run `/rekal-save` at end of future sessions to maintain.
+
+## Step 7: Self-check — MANDATORY
+
+After Step 6, verify you actually executed all tiers.
+
+**Did you execute Tier 4?** If you never ran the Grep commands from 4c or never read module `__init__.py` files from 4b, go back and do it now.
+
+**Category coverage.** For each category below, check if the codebase has it. If it does and you stored nothing about it, go back and scan:
+
+```
+□ Module map (what each package/dir does)     → missing? Run Tier 4a-4b
+□ Domain model (entities, relationships)       → missing? Grep BaseModel/dataclass, read models/
+□ API surface (routes, endpoints, handlers)    → missing? Grep router/app.route, read route files
+□ Data layer (tables, schema, migrations)      → missing? Grep CREATE TABLE, read migrations
+□ Error handling (exception hierarchy)         → missing? Grep class.*Error
+□ Conventions (style, linting, naming)         → missing? Re-read CLAUDE.md, linter configs
+□ CI/CD pipeline                               → missing? Re-read workflow files
+```
+
+If a category doesn't exist in the codebase, skip it — only store what's actually there.
 
 ## Boundaries
 
 - **Read-only on the codebase.** Never modify project files.
 - **No secrets.** Skip .env files with real values. Only read .env.example.
-- **Scan source structure, not every line.** Read __init__.py, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently. Goal: understand the shape of each module without reading its internals.
-- **Dedup is mandatory.** Never skip the search-before-store step.
+- **Scan source structure, not every line.** Read __init__.py, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently.
+- **Dedup is mandatory on re-init.** On fresh DB, skip dedup.
 - **Ask before overwriting.** If existing memories conflict with what the codebase says, present both and ask which is correct.
-- **Aim for 40-80 memories** on a substantial codebase (10+ modules). 20 is too few — it means you skipped module-level architecture, domain model, API surface, and cross-cutting patterns. If you finish with <30 memories on a large project, go back and scan source code structure more aggressively.
-- **Session-level learning via `/rekal-save`.** Init captures the structural 80%. Runtime discoveries happen via `/rekal-save`.
+- **Execute all tiers.** If you only stored memories from docs and config, you skipped Tier 4. Go back.
+- **Session-level learning via `/rekal-save`.** Init captures the structural baseline. Runtime discoveries happen via `/rekal-save`.
 
 ## Large codebases
 
 For monorepos or projects with 10+ top-level directories:
 
 1. Scan all top-level READMEs and __init__.py files first to build a map
-2. Process ALL areas — don't stop after one module. Aim for 3-5 memories per major module.
+2. Process ALL areas — don't stop after one module
 3. Report progress after every 10 memories stored
-4. Only ask user to pick focus areas if the codebase has 50+ top-level directories (true monorepo scale)
+4. Only ask user to pick focus areas if 50+ top-level directories (true monorepo scale)
 
 For a typical large project (5-20 modules), scan everything without asking. The user ran init to get comprehensive coverage, not partial.
 
