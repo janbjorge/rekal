@@ -15,12 +15,24 @@ Measures how well rekal's hybrid search (FTS5 + vector + recency) retrieves
 gold-standard evidence from long conversations, compared to a naive flat-file
 baseline that dumps everything into context.
 
+Dataset: LoCoMo-10 (https://github.com/snap-research/locomo) — 10 real long-form
+conversations between two people, each spanning ~20-30 sessions. Every conversation
+has ~200 human-authored QA pairs with gold evidence citations pointing to specific
+dialogue turns (e.g. D3:7 = session 3, turn 7).
+
 Three approaches:
   raw        — every dialogue turn is a separate memory
-  compressed — Claude Haiku compresses each session into facts (one memory each)
-  flat-file  — entire conversation concatenated into a single memory
+  compressed — Claude Haiku compresses each session into distilled facts
+  flat-file  — entire conversation concatenated into a single memory (baseline)
+
+The key question: can rekal's search find the right evidence without injecting the
+entire conversation history? Flat-file always gets perfect recall (it has everything)
+but costs ~20K tokens per query. The benchmark proves rekal achieves comparable recall
+at a fraction of the token cost.
 
 Compressed approach auto-detected: runs if `claude` CLI is on PATH, skipped otherwise.
+Summaries are cached to bench/locomo_summaries.json to avoid re-running Haiku on
+subsequent runs (~272 CLI calls, ~5 min uncached).
 
 Usage:
   uv run bench/locomo_eval.py
@@ -54,6 +66,12 @@ DATA_PATH = Path("bench/locomo10.json")
 CACHE_PATH = Path("bench/locomo_summaries.json")
 K = 10
 
+# LoCoMo QA categories — each tests a different retrieval challenge:
+#   single-hop: answer lives in one turn ("What's Caroline's job?")
+#   temporal:   requires reasoning about dates/order ("When did X happen?")
+#   multi-hop:  evidence spans multiple sessions
+#   open-ended: subjective questions with broad evidence
+#   adversarial: intentionally misleading questions (swapped speakers, false claims)
 CATEGORY_NAMES: dict[int, str] = {
     1: "single-hop",
     2: "temporal",
@@ -62,6 +80,9 @@ CATEGORY_NAMES: dict[int, str] = {
     5: "adversarial",
 }
 
+# Compression prompt — intentionally mirrors rekal's own MCP instructions
+# (see INSTRUCTIONS in mcp_adapter.py). The bench must measure the same
+# compression strategy that real agents use, otherwise results are meaningless.
 COMPRESS_PROMPT = """\
 You are a fact extractor. Below is a TRANSCRIPT of a conversation between two people.
 Extract every durable fact. One fact per line. Output ONLY facts, nothing else.
@@ -103,6 +124,8 @@ app = typer.Typer(add_completion=False)
 
 @dataclass(frozen=True, slots=True)
 class Turn:
+    """Single dialogue turn. dia_id format: 'D{session}:{turn}' (e.g. 'D3:7')."""
+
     session: int
     dia_id: str
     speaker: str
@@ -111,6 +134,13 @@ class Turn:
 
 @dataclass(frozen=True, slots=True)
 class QAPair:
+    """One QA pair with gold evidence citations.
+
+    Evidence entries like 'D1:3' mean session 1, turn 3. We only need the
+    session number for retrieval evaluation — we're measuring whether rekal
+    finds the right *session*, not the exact turn.
+    """
+
     question: str
     answer: str
     evidence: tuple[str, ...]
@@ -140,6 +170,8 @@ class Conversation:
 
 @dataclass(slots=True)
 class Metrics:
+    """IR metrics for a single query. F1 is derived, not stored."""
+
     recall: float = 0.0
     precision: float = 0.0
     mrr: float = 0.0
@@ -153,6 +185,8 @@ class Metrics:
 
 @dataclass(slots=True)
 class ConvResult:
+    """Results for one conversation under one approach."""
+
     tokens: int = 0
     per_query: list[Metrics] = field(default_factory=list)
     per_category: dict[int, list[Metrics]] = field(default_factory=dict)
@@ -160,6 +194,8 @@ class ConvResult:
 
 @dataclass(frozen=True, slots=True)
 class Summary:
+    """Aggregated row for the final results table."""
+
     approach: str
     tokens: float
     recall: float
@@ -172,6 +208,8 @@ class Summary:
 
 @dataclass(frozen=True, slots=True)
 class CategorySummary:
+    """Per-category breakdown row."""
+
     category: str
     recall: float
     precision: float
@@ -194,6 +232,11 @@ def download_locomo(dest: Path) -> None:
 
 
 def load_conversations(path: Path) -> list[Conversation]:
+    """Parse LoCoMo JSON into typed dataclasses.
+
+    LoCoMo stores sessions as 'session_1', 'session_2', etc. QA pairs in
+    category 5 (adversarial) use 'adversarial_answer' instead of 'answer'.
+    """
     with open(path) as f:
         raw = json.load(f)
     if isinstance(raw, dict):
@@ -225,6 +268,11 @@ def load_conversations(path: Path) -> list[Conversation]:
 
 # ---------------------------------------------------------------------------
 # Populate strategies
+#
+# Each populate function fills an in-memory rekal DB with memories from one
+# conversation, then returns the total token count (chars // 4 estimate).
+# The token count represents how much context would be injected per query —
+# the core cost metric we're benchmarking.
 # ---------------------------------------------------------------------------
 
 
@@ -233,6 +281,7 @@ def format_turn(turn: Turn) -> str:
 
 
 async def populate_raw(db: SqliteDatabase, sessions: list[list[Turn]]) -> int:
+    """One memory per dialogue turn. Highest granularity, most memories."""
     chars = 0
     for session in sessions:
         for turn in session:
@@ -243,12 +292,17 @@ async def populate_raw(db: SqliteDatabase, sessions: list[list[Turn]]) -> int:
 
 
 async def populate_flat(db: SqliteDatabase, sessions: list[list[Turn]]) -> int:
+    """Entire conversation as a single memory. Simulates naive 'dump everything'
+    approach like Claude's built-in memory or a plain MEMORY.md file."""
     blob = "\n".join(format_turn(t) for s in sessions for t in s)
     await db.store(blob)
     return len(blob) // 4
 
 
 # -- Compression via Claude CLI -----------------------------------------------
+# Shells out to `claude -p --model haiku` for each session. Parallel with
+# semaphore to avoid overwhelming the CLI. Results cached to JSON so subsequent
+# runs are instant.
 
 SEM = asyncio.Semaphore(10)
 
@@ -294,6 +348,11 @@ async def compress_sessions(
 
 
 def make_compress_fn(conv_idx: int, cache: dict[str, str]) -> PopulateFn:
+    """Build a populate function that compresses sessions via Claude Haiku.
+
+    Returns a closure capturing conv_idx and the shared cache dict, so it
+    matches the PopulateFn signature expected by run_one().
+    """
     async def populate(db: SqliteDatabase, sessions: list[list[Turn]]) -> int:
         summaries = await compress_sessions(sessions, conv_idx, cache)
         chars = 0
@@ -306,7 +365,13 @@ def make_compress_fn(conv_idx: int, cache: dict[str, str]) -> PopulateFn:
 
 
 # ---------------------------------------------------------------------------
-# Session mapping — which session(s) does a retrieved memory belong to?
+# Session mapping
+#
+# After search returns memories, we need to trace each result back to its
+# source session(s) so we can compare against gold evidence. Three strategies:
+#   - Raw turns contain dia_ids like "[D3:7]" → scan for them
+#   - Compressed memories are tagged "session:3" → read the tag
+#   - Flat-file contains ALL dia_ids → scan finds all sessions naturally
 # ---------------------------------------------------------------------------
 
 
@@ -333,6 +398,10 @@ def memory_to_sessions(
 
 # ---------------------------------------------------------------------------
 # Scoring
+#
+# All metrics operate at session granularity: a retrieved memory is "relevant"
+# if it maps to any of the gold evidence sessions. This is intentionally coarse —
+# we're measuring whether rekal surfaces the right session, not the exact turn.
 # ---------------------------------------------------------------------------
 
 
@@ -355,6 +424,8 @@ def score_query(gold: frozenset[int], retrieved: list[frozenset[int]], k: int) -
             break
 
     dcg = sum(float(hit) / math.log2(rank + 1) for rank, hit in enumerate(relevant, 1))
+    # IDCG based on actual relevant count, not gold count — multiple results
+    # can map to the same gold session, so num_relevant may exceed len(gold).
     num_relevant = sum(relevant)
     idcg = sum(1.0 / math.log2(i + 2) for i in range(min(num_relevant, k)))
     ndcg = dcg / idcg if idcg > 0 else 0.0
@@ -367,6 +438,7 @@ async def evaluate_conv(
     qa_pairs: list[QAPair],
     sessions: list[list[Turn]],
 ) -> ConvResult:
+    """Run all QA pairs against a populated DB, collect per-query metrics."""
     weights = ScoringWeights()
     result = ConvResult()
 
@@ -387,6 +459,10 @@ async def evaluate_conv(
 
 # ---------------------------------------------------------------------------
 # Aggregation
+#
+# Metrics are pooled across all QA pairs from all conversations (micro-average),
+# not averaged per-conversation then averaged again. This avoids giving equal
+# weight to a 105-QA conversation and a 260-QA conversation.
 # ---------------------------------------------------------------------------
 
 
@@ -404,6 +480,8 @@ def build_summary(name: str, results: list[ConvResult]) -> Summary:
     all_queries = [m for r in results for m in r.per_query]
     avg = mean_metrics(all_queries)
     avg_tokens = sum(r.tokens for r in results) / (len(results) or 1)
+    # Efficiency: recall per 1K tokens — the pitch number.
+    # Higher = more recall per token dollar spent.
     eff = avg.recall / (avg_tokens / 1000) if avg_tokens > 0 else 0.0
     return Summary(
         approach=name,
@@ -461,7 +539,7 @@ def print_section(title: str, rows: list[Summary] | list[CategorySummary]) -> No
 def format_progress_table(
     rows: list[tuple[str, int, Metrics, int]],
 ) -> str:
-    """Format per-conversation progress as a compact table."""
+    """Per-conversation progress table shown during the run."""
     table_rows: list[list[str | int]] = []
     for name, tokens, avg, raw_tokens in rows:
         pct = (tokens / raw_tokens - 1) * 100 if raw_tokens > 0 and tokens != raw_tokens else None
@@ -480,6 +558,7 @@ async def run_one(
     conv: Conversation,
     qa_pairs: list[QAPair],
 ) -> ConvResult:
+    """Populate a fresh in-memory DB with one approach, evaluate all QA pairs."""
     embedder = FastEmbedder()
     embedder.ensure_model()
     db = await SqliteDatabase.create(":memory:", embedder)
