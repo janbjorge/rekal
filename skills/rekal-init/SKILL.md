@@ -10,7 +10,11 @@ disable-model-invocation: true
 allowed-tools: Read Glob Grep mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_set_project mcp__rekal__memory_health mcp__rekal__memory_conflicts
 ---
 
-Bootstrap rekal memory from a codebase. Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves.
+Bootstrap rekal memory from a codebase.
+
+**Target: 40-80 memories for a substantial project.** A project with 10+ source modules, multiple ADRs, CI pipelines, and domain concepts should yield 50+ memories. If you finish with fewer than 30, you under-extracted — go back and scan deeper.
+
+Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves. Every module, every domain concept, every non-obvious pattern deserves a memory.
 
 ## Step 0: Pre-flight
 
@@ -36,7 +40,7 @@ memory_set_project(project="<name>")
 
 Search for these files in priority order. Read every file that exists. Skip what's missing.
 
-### Tier 1 — High-signal project docs (read fully)
+### Tier 1 — High-signal project docs (read fully) → expect 5-15 memories
 
 ```
 CLAUDE.md, AGENTS.md, .claude/CLAUDE.md
@@ -45,7 +49,9 @@ CONTRIBUTING.md, ARCHITECTURE.md, DESIGN.md, ADR/*.md
 docs/architecture.md, docs/design.md, docs/conventions.md
 ```
 
-### Tier 2 — Config and dependency manifests (read fully)
+Each ADR = at least 1 memory. README with architecture section = 2-3 memories. CLAUDE.md conventions = 3-5 memories.
+
+### Tier 2 — Config and dependency manifests (read fully) → expect 5-10 memories
 
 ```
 pyproject.toml, setup.cfg, setup.py, requirements*.txt
@@ -57,7 +63,9 @@ docker-compose.yml, Dockerfile
 .env.example, .envrc
 ```
 
-### Tier 3 — Structural exploration
+Extract: stack + versions, key deps with purpose, CI pipeline steps, Docker base image + multi-stage setup, env vars needed.
+
+### Tier 3 — Structural exploration → expect 3-5 memories
 
 ```
 # Directory tree — top 3 levels via Glob
@@ -72,11 +80,15 @@ manage.py, wsgi.py, asgi.py
 mypy.ini, pyrightconfig.json, tox.ini
 ```
 
-### Tier 4 — Source code structure (read selectively, not line-by-line)
+Store: project layout overview (which dirs hold what), entry points and how app boots, linter/formatter config summary.
 
-Scan source modules to extract architecture that lives in code, not docs.
+### Tier 4 — Source code structure → expect 15-30 memories (THIS IS THE BIG ONE)
+
+Scan source modules to extract architecture that lives in code, not docs. **This tier produces the most memories.** Do not rush through it. Spend real time here.
 
 **Strategy:** For each top-level package/directory, read `__init__.py` (or `index.ts`, `mod.rs`, etc.) and 2-3 key files per module. Use Grep to find patterns across the codebase rather than reading every file.
+
+**Minimum: 1 memory per source module/package.** A project with 8 modules → at least 8 memories from this tier alone. Aim for 2-3 per module (what it does, key types, how it connects).
 
 ```
 # Module structure — read __init__.py files to understand public APIs
@@ -107,7 +119,7 @@ Grep: "class.*Enum", "Literal\\[", "STATUS_", "TYPE_"
 - How it connects to other modules (imports, dependency injection)
 - Non-obvious patterns (custom decorators, middleware, hooks)
 
-### Tier 5 — Test structure and patterns
+### Tier 5 — Test structure and patterns → expect 2-5 memories
 
 ```
 # Test organization
@@ -117,6 +129,8 @@ Read: conftest.py, test helpers, fixtures
 # What's being tested reveals what matters
 Grep: "def test_", "it(", "describe(" — skim test names for domain concepts
 ```
+
+Store: test framework + runner config, key fixtures/factories, test DB strategy, parallelization setup.
 
 Do NOT read:
 - Lock files (package-lock.json, uv.lock, Cargo.lock, yarn.lock)
@@ -170,7 +184,7 @@ The cost of a missing memory (user repeats themselves, agent makes wrong assumpt
 
 ## Step 4: Deduplicate and store
 
-For EVERY candidate, before storing:
+For each candidate, search before storing to avoid duplicates:
 
 ```python
 memory_search(query="<candidate topic>", limit=5)
@@ -185,6 +199,8 @@ Search results?
 ├── Outdated version → memory_supersede(old_id, new_content)
 └── Contradicts      → memory_supersede(old_id, new_content) — include what changed
 ```
+
+**On a fresh DB (no existing memories), skip the search step entirely** — there's nothing to dedup against. Just store directly. This dramatically speeds up init on new projects.
 
 ### Pick memory_type
 
@@ -261,6 +277,30 @@ Summarize what was captured:
 > - Test rules: no mocking, real SQLite, deterministic embeddings
 >
 > Run `/rekal-hygiene` later to clean up any issues that emerge.
+
+## Step 7: Self-check — did you extract enough?
+
+After Step 6, count memories stored. Apply this checklist:
+
+```
+Total memories < 30 on a project with 5+ source modules?
+├── YES → You under-extracted. Go back to Tier 4.
+│         Read more module files. Grep for patterns you missed.
+│         Each module should have at least 1 memory.
+└── NO  → Continue to report.
+
+Missing any of these categories entirely?
+├── Module map         → Go scan __init__.py and directory structure
+├── Domain model       → Go grep for models, schemas, enums
+├── API surface        → Go grep for routes, controllers, handlers
+├── Data layer         → Go grep for tables, migrations, ORM models
+├── Error handling     → Go grep for exception classes
+├── Event patterns     → Go grep for pub/sub, streams, signals
+├── Domain glossary    → Go read README domain section, enum values
+└── All present        → Good. Continue to report.
+```
+
+**Do not skip this step.** The whole point of init is comprehensive coverage. A 20-memory init on a 50-module project is a failure.
 
 ## Boundaries
 
