@@ -97,6 +97,8 @@ Also explore anything Tier 1 docs pointed to — scripts/ dirs, specific modules
 
 **You MUST execute every sub-step below.**
 
+Scan the codebase through an architectural lens. The goal is to map the system's layers — not just list files, but understand what role each piece of code plays.
+
 **4a. Discover all modules:**
 
 ```
@@ -106,29 +108,59 @@ Glob: "src/*/", "<pkg>/*/"
 
 List every module found. This is your checklist — store at least 1 memory per module.
 
-**4b. Read each module's key files:**
+**4b. Map the architecture by layer:**
 
-For EACH module from 4a, read its `__init__.py` and 1-2 key files (largest files, or files named models/routes/handlers/schema). Store a memory: what it does, key types, how it connects to other modules.
+For EACH module from 4a, read its `__init__.py` and 1-2 key files. Classify what you find into these layers and store memories accordingly:
 
-**4c. Grep across the codebase for domain patterns. Run ALL of these:**
-
+**Domain (the core — entities, value objects, business rules):**
 ```
-Grep: "^class " — list all classes, group by purpose
-Grep: "BaseModel|dataclass|TypedDict|Protocol" — domain models
-Grep: "router|blueprint|app.route|@app.|@router." — API surface
-Grep: "CREATE TABLE|class.*Table|mapped_column" — DB schema
-Grep: "class.*Error|class.*Exception" — error types
-Grep: "class.*Enum|Literal\[" — enums/constants, domain vocabulary
-Grep: "subscribe|publish|emit|Signal|Stream|on_event" — event patterns
+Grep: "BaseModel|dataclass|TypedDict" — find domain models and value objects
+Grep: "class.*Enum|Literal\[" — find domain vocabulary (statuses, types, categories)
+Grep: "class.*Error|class.*Exception" — find domain errors (business rule violations)
 ```
+Store: what entities exist, their relationships, invariants, domain-specific terms.
 
-Each grep with results → at least 1 memory summarizing findings. No results → skip.
+**Ports (boundaries — interfaces the domain exposes or depends on):**
+```
+Grep: "Protocol|ABC|abstractmethod" — find port definitions
+Grep: "class.*Repository|class.*Service|class.*Gateway" — find named ports
+```
+Store: what abstractions exist, which are inbound (driving) vs outbound (driven).
 
-**4d. Read model/schema files:**
+**Adapters (implementations — how ports connect to the outside world):**
 
-Find and read files in directories named `models/`, `schemas/`, `types/`, `entities/`. Read latest 3-5 migration files. Read proto files, GraphQL schemas, OpenAPI specs if they exist.
+*Inbound adapters (drive the application):*
+```
+Grep: "router|blueprint|app.route|@app.|@router." — HTTP/REST controllers
+Grep: "class.*Consumer|on_message|on_event" — message consumers
+Grep: "service.*pb2|class.*Servicer" — gRPC handlers
+Grep: "@cli|@click|@app.command" — CLI handlers
+```
+Store: API surface (endpoints, route structure), message handlers, CLI commands.
+
+*Outbound adapters (driven by the application):*
+```
+Grep: "CREATE TABLE|class.*Table|mapped_column|class.*Model" — DB/ORM repos
+Grep: "subscribe|publish|emit|Signal|Stream" — event/message publishers
+Grep: "httpx|requests|aiohttp|ClientSession" — external API clients
+Grep: "boto3|azure|google.cloud" — cloud service adapters
+```
+Store: persistence strategy (DB, tables, key relationships), external integrations, event/message patterns.
+
+**Infrastructure (wiring — DI, config, middleware, startup):**
+```
+Grep: "Depends|Inject|@inject|Container|provide" — dependency injection
+Grep: "middleware|@app.middleware" — cross-cutting middleware
+```
+Store: how layers are wired together, middleware chain, DI patterns.
+
+**4c. Read schema/model files in detail:**
+
+Find and read files in directories named `models/`, `schemas/`, `types/`, `entities/`, `domain/`. Read latest 3-5 migration files. Read proto files, GraphQL schemas, OpenAPI specs if they exist.
 
 Store: entity relationships, key fields, constraints worth knowing.
+
+Each grep with results → at least 1 memory summarizing findings. No results → skip.
 
 ### Tier 5 — Test structure and patterns
 
@@ -163,25 +195,44 @@ The cost of a missing memory (user repeats themselves, agent makes wrong assumpt
 
 ### What to extract
 
-| Category | Source files | Example memory |
-|----------|-------------|----------------|
-| **Architecture** | README, ARCHITECTURE, AGENTS.md, source structure | "Three-layer arch: MCP adapter → tool wrappers → SqliteDatabase. All SQL lives in sqlite_adapter.py" |
-| **Module map** | __init__.py, imports, directory structure | "services/ has 6 modules: auth (JWT+RBAC), billing (Stripe), notifications (email+push), search (Elasticsearch), inventory (warehouse ops), reporting (async PDF gen)" |
-| **Domain model** | Models, schemas, migrations, enums | "Core entities: Order (stateful, FSM), Product (immutable after publish), Warehouse (has zones/bins), User (has roles via RBAC). All IDs are NewType UUIDs." |
-| **API surface** | Routes, controllers, gRPC protos | "REST API: /api/v2/ prefix. 47 endpoints across 8 routers. Auth via Bearer JWT. Rate limited 100/min per user." |
-| **Data layer** | ORM models, migrations, raw SQL | "Postgres 15. 34 tables. Key: orders→order_lines→products. Soft deletes on orders. Partitioned by created_at on events table." |
-| **Conventions** | CONTRIBUTING, CLAUDE.md, linter configs | "No underscore prefixes on attributes. Public by default. No mutable globals." |
-| **Dependencies & stack** | pyproject.toml, package.json, Cargo.toml | "Python 3.11+, key deps: mcp[cli], aiosqlite, sqlite-vec, fastembed, pydantic" |
-| **Build & test** | Makefile, CI configs, pyproject.toml | "CI: ruff check, ruff format --check, ty check, pytest 100% coverage required" |
-| **Test patterns** | conftest.py, test structure, fixtures | "Tests use testcontainers for Postgres+Redis. Factory pattern via conftest fixtures. 8 parallel pytest workers split by module." |
-| **Deploy & infra** | Docker, CI/CD, Makefile | "Deploy via git tag vX.Y.Z → CI builds and publishes to PyPI" |
+**Architecture & structure:**
+
+| Category | Source | Example memory |
+|----------|--------|----------------|
+| **Architecture overview** | README, ARCHITECTURE, AGENTS.md | "Hex arch: domain in core/, ports as Protocol classes, adapters in adapters/. DI wires at startup." |
+| **Module map** | __init__.py, directory structure | "services/ has 6 modules: auth, billing, notifications, search, inventory, reporting" |
 | **Project structure** | Directory tree, entry points | "Entry point: rekal/cli.py. MCP server: rekal/adapters/mcp_adapter.py" |
-| **Key decisions** | ADRs, DESIGN.md, README | "Chose SQLite over Postgres for zero-config single-file deployment" |
-| **Workflows** | CONTRIBUTING, Makefile, CI | "PR workflow: branch from main, all CI checks must pass, squash merge" |
-| **Error handling** | Exception classes, error middleware | "Custom exception hierarchy: AppError → {ValidationError, NotFoundError, AuthError}. All caught by error_middleware → JSON error response." |
-| **Event/async patterns** | Message queues, signals, streams | "Redis Streams for async events. 12 event types. Consumers in workers/ dir. Retry with exponential backoff, DLQ after 5 failures." |
-| **Cross-cutting concerns** | Middleware, decorators, mixins | "Auth decorator @require_role('admin') on protected endpoints. Audit logging via middleware on all mutations. Request ID propagated via contextvars." |
-| **Domain glossary** | README, docs, code comments, enums | "Content code = barcode type for warehouse items. Pick = retrieve item from bin. Putaway = store item in bin. Wave = batch of picks optimized for walk path." |
+| **Key decisions** | ADRs, DESIGN.md | "Chose SQLite over Postgres for zero-config single-file deployment" |
+
+**Domain layer:**
+
+| Category | Source | Example memory |
+|----------|--------|----------------|
+| **Domain model** | Models, schemas, enums | "Core entities: Order (stateful, FSM), Product (immutable), Warehouse (has zones/bins). All IDs are NewType UUIDs." |
+| **Domain vocabulary** | Enums, constants, README | "Content code = barcode type. Pick = retrieve from bin. Putaway = store in bin. Wave = batch of picks." |
+| **Domain errors** | Exception classes | "DomainError → {ValidationError, NotFoundError, ConflictError}. Raised in domain, caught by adapters." |
+
+**Ports & adapters:**
+
+| Category | Source | Example memory |
+|----------|--------|----------------|
+| **Inbound ports** | Protocols, ABCs, interfaces | "OrderService protocol: create_order, cancel_order, ship_order. Implemented by OrderServiceImpl." |
+| **Inbound adapters** | Routes, controllers, CLI, consumers | "REST API: /api/v2/ prefix. 47 endpoints across 8 routers. Auth via Bearer JWT." |
+| **Outbound ports** | Repository protocols, gateway ABCs | "OrderRepository protocol: get, save, list_by_status. WarehouseGateway: reserve_stock, release_stock." |
+| **Outbound adapters** | ORM, DB, API clients, publishers | "Postgres 15. 34 tables. Key: orders→order_lines→products. Soft deletes. Redis Streams for events." |
+| **External integrations** | HTTP clients, cloud SDKs | "Stripe adapter for billing. Azure Blob for file uploads. SendGrid for email." |
+
+**Infrastructure & operations:**
+
+| Category | Source | Example memory |
+|----------|--------|----------------|
+| **Wiring / DI** | Container, startup, middleware | "FastAPI Depends for DI. Middleware chain: auth → audit log → error handler → request ID." |
+| **Conventions** | CLAUDE.md, linter configs | "No underscore prefixes. Public by default. No mutable globals." |
+| **Dependencies & stack** | pyproject.toml, package.json | "Python 3.11+, key deps: mcp[cli], aiosqlite, sqlite-vec, fastembed, pydantic" |
+| **Build & CI** | Makefile, CI configs | "CI: ruff check, ruff format --check, ty check, pytest 100% coverage required" |
+| **Test patterns** | conftest.py, fixtures | "Tests use testcontainers for Postgres+Redis. Factory pattern. 8 parallel pytest workers." |
+| **Deploy & infra** | Docker, CI/CD | "Deploy via git tag vX.Y.Z → CI builds and publishes to PyPI" |
+| **Workflows** | CONTRIBUTING, Makefile | "PR workflow: branch from main, all CI checks pass, squash merge" |
 
 ### What NOT to extract
 
@@ -246,21 +297,18 @@ Bad:  ["code", "project", "structure"]
 
 Group related candidates. Store in logical order:
 
-1. Project identity and stack
-2. High-level architecture and structure
-3. Module map (what each module/package does)
-4. Domain model and key entities
-5. API surface and routes
-6. Data layer (DB schema, key tables, relationships)
+1. Project identity, stack, and architecture overview
+2. Module map (what each module/package does)
+3. Domain layer: entities, value objects, domain errors, vocabulary
+4. Ports: inbound and outbound interfaces
+5. Adapters: API surface, persistence, external integrations, event patterns
+6. Infrastructure: DI/wiring, middleware, cross-cutting concerns
 7. Conventions and style
 8. Build, test, CI
-9. Test patterns and fixtures
-10. Deploy and infra
-11. Event/async patterns and cross-cutting concerns
-12. Domain glossary
-13. Key decisions (ADRs)
+9. Deploy and infra
+10. Key decisions (ADRs)
 
-This ordering helps if the user interrupts — most valuable knowledge lands first.
+This ordering helps if the user interrupts — domain knowledge (most valuable) lands first.
 
 ## Step 6: Verify and report
 
@@ -291,16 +339,18 @@ After Step 6, verify you actually executed all tiers.
 
 **Did you execute Tier 4?** If you never ran the Grep commands from 4c or never read module `__init__.py` files from 4b, go back and do it now.
 
-**Category coverage.** For each category below, check if the codebase has it. If it does and you stored nothing about it, go back and scan:
+**Category coverage.** For each layer below, check if the codebase has it. If it does and you stored nothing about it, go back and scan:
 
 ```
-□ Module map (what each package/dir does)     → missing? Run Tier 4a-4b
-□ Domain model (entities, relationships)       → missing? Grep BaseModel/dataclass, read models/
-□ API surface (routes, endpoints, handlers)    → missing? Grep router/app.route, read route files
-□ Data layer (tables, schema, migrations)      → missing? Grep CREATE TABLE, read migrations
-□ Error handling (exception hierarchy)         → missing? Grep class.*Error
-□ Conventions (style, linting, naming)         → missing? Re-read CLAUDE.md, linter configs
-□ CI/CD pipeline                               → missing? Re-read workflow files
+□ Module map (what each package/dir does)       → missing? Run Tier 4a-4b
+□ Domain (entities, value objects, vocabulary)   → missing? Grep BaseModel/dataclass/Enum, read models/
+□ Domain errors                                  → missing? Grep class.*Error
+□ Ports (protocols, ABCs, interfaces)            → missing? Grep Protocol/ABC/abstractmethod
+□ Inbound adapters (routes, CLI, consumers)      → missing? Grep router/app.route/click
+□ Outbound adapters (DB, API clients, events)    → missing? Grep CREATE TABLE/httpx/publish
+□ Wiring / DI                                    → missing? Grep Depends/inject/Container
+□ Conventions (style, linting, naming)           → missing? Re-read CLAUDE.md, linter configs
+□ CI/CD pipeline                                 → missing? Re-read workflow files
 ```
 
 If a category doesn't exist in the codebase, skip it — only store what's actually there.
