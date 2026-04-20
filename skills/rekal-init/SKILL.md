@@ -82,13 +82,8 @@ Extract: stack + versions, key deps with purpose, CI pipeline steps, Docker setu
 # Directory tree — top 3 levels via Glob
 Glob pattern: "**/*/", max-depth 3
 
-# Entry points — adapt to language
-main.py, app.py, manage.py, wsgi.py, asgi.py
-index.ts, index.js, src/index.*
-main.go, cmd/*/main.go
-src/main.rs, src/lib.rs
-Program.cs, Startup.cs
-src/main/*, src/App.*
+# Entry points — look for main/index/app files in src/ and project root
+Glob: "main.*", "app.*", "index.*", "src/main.*", "src/index.*", "cmd/*/main.*"
 
 # Config files that reveal conventions
 .editorconfig, .prettierrc, .eslintrc*, ruff.toml, .ruff.toml
@@ -105,109 +100,65 @@ Scan the codebase through an architectural lens. The goal is to map the system's
 
 **4a. Discover all modules/packages:**
 
-Adapt to the project's language. Find the top-level source units:
-
-| Language | Glob patterns |
-|----------|---------------|
-| Python | `<pkg>/**/__init__.py`, `src/*/` |
-| TypeScript/JS | `src/*/`, `packages/*/`, `src/*/index.ts` |
-| Go | `cmd/*/`, `internal/*/`, `pkg/*/` |
-| Rust | `src/*/`, `crates/*/`, `**/mod.rs` |
-| Java/Kotlin | `src/main/**/`, look for package dirs |
-| C#/.NET | `src/*/`, `**/*.csproj` |
-| General | `src/*/`, top-level dirs with source files |
-
-List every module found. This is your checklist — store at least 1 memory per module.
+Use the directory tree from Tier 3 and the stack from Tier 2 to identify top-level source units (packages, modules, crates, services — whatever the project calls them). Glob for `src/*/` or equivalent. List every module found — store at least 1 memory per module.
 
 **4b. Map the architecture by layer:**
 
-For EACH module from 4a, read its entry file (index, mod, __init__, etc.) and 1-2 key files. Classify what you find into these layers and store memories accordingly:
+For EACH module from 4a, read its entry/index file and 1-2 key files. Classify what you find and store memories accordingly:
 
-**Domain (the core — entities, value objects, business rules):**
+**Domain (entities, value objects, business rules):**
+- Find type/model definitions — look in dirs named `models`, `entities`, `domain`, `types`, `schemas`
+- Find enums and constants — these define domain vocabulary (statuses, categories, roles)
+- Find error/exception types — these define domain boundaries and business rule violations
 
-Search for type/model definitions, enums, and domain error types. Adapt patterns to the language:
-```
-# Models and value objects — look for structured type definitions
-Grep: "class |struct |type |interface |data class|record " in model/entity dirs
-Grep: "enum |enum class|sealed |union " — domain vocabulary (statuses, types, categories)
-
-# Domain errors — business rule violations
-Grep: "Error|Exception" in files named *error*, *exception*, or domain dirs
-```
 Store: what entities exist, their relationships, invariants, domain-specific terms.
 
-**Ports (boundaries — interfaces the domain exposes or depends on):**
-```
-# Abstract interfaces — the contracts between layers
-Grep: "interface |trait |Protocol|abstract |ABC" — port/contract definitions
-Grep: "Repository|Service|Gateway|Port|Store" — named boundaries
-```
+**Ports (interfaces the domain exposes or depends on):**
+- Find abstract interfaces, contracts, traits — look for dirs named `ports`, `interfaces`, `contracts`
+- Find types named Repository, Service, Gateway, Port, Store — these are usually boundaries
+
 Store: what abstractions exist, which are inbound (driving) vs outbound (driven).
 
-**Adapters (implementations — how ports connect to the outside world):**
+**Adapters (how ports connect to the outside world):**
 
-*Inbound adapters (drive the application):*
-```
-# HTTP/REST/GraphQL — route and handler definitions
-Grep: "router|Route|Controller|@Get|@Post|@app.|HandleFunc|handler|resolver"
+*Inbound (drive the application):*
+- Find route/handler definitions — HTTP endpoints, GraphQL resolvers, gRPC services, CLI commands
+- Find message consumers/subscribers
+- Look in dirs named `routes`, `controllers`, `handlers`, `adapters`, `api`
 
-# Message consumers
-Grep: "Consumer|Subscriber|on_message|on_event|Handler|Listener"
+*Outbound (driven by the application):*
+- Find persistence implementations — SQL files, ORM models, repository classes
+- Read latest 3-5 migration files and schema definitions
+- Find event/message publishers
+- Find external service client wrappers (HTTP clients, cloud SDK usage)
 
-# gRPC
-Grep: ".proto files" via Glob, or "Servicer|pb2|_grpc|tonic::service"
+Store: API surface, persistence strategy, external integrations, event patterns.
 
-# CLI entry points
-Grep: "command|subcommand|@cli|cobra|clap|argparse"
-```
-Store: API surface (endpoints, route structure), message handlers, CLI commands.
+**Infrastructure (wiring, config, middleware, startup):**
+- Find DI/wiring configuration
+- Find middleware/interceptor chains
+- Look in dirs named `config`, `infrastructure`, `wire`, `di`
 
-*Outbound adapters (driven by the application):*
-```
-# Persistence — DB schemas, ORM models, repository implementations
-Grep: "CREATE TABLE|TABLE|migration" in .sql files
-Grep: "Repository|Repo|Store|DAO" in implementation dirs (not interface dirs)
-Read: migration files (latest 3-5), schema files
+Store: how layers are wired together, middleware chain.
 
-# Event/message publishers
-Grep: "publish|emit|produce|send_event|dispatch"
+**4c. Read schema files in detail:**
 
-# External service clients
-Grep: "HttpClient|fetch|axios|reqwest|http.Client|RestTemplate"
-Grep: "S3|Azure|GCP|aws-sdk|google.cloud|boto" — cloud services
-```
-Store: persistence strategy (DB, tables, key relationships), external integrations, event/message patterns.
-
-**Infrastructure (wiring — DI, config, middleware, startup):**
-```
-# Dependency injection / service wiring
-Grep: "inject|provide|bind|Container|Module|@Injectable|Depends"
-
-# Middleware and cross-cutting
-Grep: "middleware|interceptor|filter|pipe|guard"
-```
-Store: how layers are wired together, middleware chain, DI patterns.
-
-**4c. Read schema/model files in detail:**
-
-Find and read files in directories named `models/`, `schemas/`, `types/`, `entities/`, `domain/`, or language equivalents. Read latest 3-5 migration files. Read proto files, GraphQL schemas, OpenAPI specs if they exist.
+Find and read files in model/schema/entity directories. Read migration files, proto files, GraphQL schemas, OpenAPI specs if they exist.
 
 Store: entity relationships, key fields, constraints worth knowing.
 
-Each grep with results → at least 1 memory summarizing findings. No results → skip.
+Each discovery → at least 1 memory summarizing findings. Nothing found → skip.
 
 ### Tier 5 — Test structure and patterns
 
 ```
-# Find test files — adapt to language conventions
-Glob: "tests/", "test/", "**/*_test.*", "**/*.test.*", "**/*_spec.*", "**/*.spec.*"
+# Find test directories and config
+Glob: "tests/", "test/", "spec/", "testdata/", "fixtures/"
 
-# Read test setup/config — fixtures, helpers, factories
-Glob: "conftest.py", "test_helper.*", "setup_test.*", "jest.config.*", "vitest.config.*"
-Glob: "tests/fixtures/", "testdata/", "test/support/"
+# Read test setup — fixtures, helpers, factories, shared config
+Look for setup/helper/conftest/factory files in test dirs
 
-# Skim test names for domain concepts
-Grep: "def test_|func Test|it(|describe(|test(" — just names, not implementations
+# Skim test names for domain concepts — just names, not implementations
 ```
 
 Store: test framework, fixtures/factories, DB/service strategy, parallelization.
@@ -382,15 +333,14 @@ After Step 6, verify you actually executed all tiers.
 **Category coverage.** For each layer below, check if the codebase has it. If it does and you stored nothing about it, go back and scan:
 
 ```
-□ Module map (what each package/dir does)       → missing? Run Tier 4a-4b
-□ Domain (entities, value objects, vocabulary)   → missing? Grep for type/struct/class defs, read model dirs
-□ Domain errors                                  → missing? Grep for Error/Exception types
-□ Ports (interfaces, traits, protocols)          → missing? Grep for interface/trait/abstract/Protocol
-□ Inbound adapters (routes, CLI, consumers)      → missing? Grep for route/controller/handler defs
-□ Outbound adapters (DB, API clients, events)    → missing? Grep for table defs, client usage, publish calls
-□ Wiring / DI                                    → missing? Grep for inject/provide/Container
-□ Conventions (style, linting, naming)           → missing? Re-read CLAUDE.md, linter configs
-□ CI/CD pipeline                                 → missing? Re-read workflow files
+□ Module map (what each package/dir does)
+□ Domain (entities, value objects, vocabulary, errors)
+□ Ports (abstract interfaces and contracts)
+□ Inbound adapters (routes, CLI, consumers)
+□ Outbound adapters (persistence, API clients, event publishers)
+□ Infrastructure (wiring, middleware)
+□ Conventions (style, linting, naming)
+□ CI/CD pipeline
 ```
 
 If a category doesn't exist in the codebase, skip it — only store what's actually there.
