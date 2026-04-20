@@ -7,21 +7,12 @@ description: >
   rekal on a new project, or when user says "init rekal", "bootstrap memory",
   "populate rekal", "scan project". Trigger: /rekal-init.
 disable-model-invocation: true
-allowed-tools: Read Glob Grep mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_set_project mcp__rekal__memory_health mcp__rekal__memory_conflicts
+allowed-tools: Read Glob Grep mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_set_project mcp__rekal__memory_health mcp__rekal__memory_conflicts mcp__rekal__project_scan
 ---
 
 Bootstrap rekal memory from a codebase.
 
-## HARD REQUIREMENTS — read before starting
-
-1. **You MUST execute ALL tiers**, including Tier 4 (source code scanning). This is not optional.
-2. **You MUST run every Grep command** listed in Tier 4c. Each grep that returns results = at least 1 memory.
-3. **You MUST store at least 1 memory per source module** found in the codebase.
-4. **You MUST run the Step 7 self-check** before reporting.
-
-Common failure: agent reads docs + config (Tiers 1-2), stores some memories, then skips Tiers 4-5 entirely. **DO NOT DO THIS.**
-
-Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves.
+**Target: 40-80 memories for a substantial project.** This skill uses the `project_scan` tool to programmatically extract code structure, then you read docs to fill in the rest. Do not stop after storing scan results — the docs phase is equally important.
 
 ## Step 0: Pre-flight
 
@@ -29,11 +20,7 @@ Goal: a fresh agent in a new session has enough context to work effectively with
 memory_health()
 ```
 
-Report current state. If the project already has memories, warn:
-
-> "Found 47 memories for project 'backend'. This will add new knowledge and supersede outdated entries. Continue?"
-
-Wait for confirmation before proceeding. For a fresh database, continue automatically.
+Report current state. If the project already has memories, warn and wait for confirmation. For a fresh database, continue automatically.
 
 ## Step 1: Identify the project
 
@@ -43,174 +30,90 @@ Determine the project name from the working directory, git remote, or config fil
 memory_set_project(project="<name>")
 ```
 
-## Step 2: Scan for knowledge sources
+## Step 2: Run the automated scanner
 
-Search for these files in priority order. Read every file that exists. Skip what's missing.
+Call `project_scan` with the project root directory. This programmatically discovers:
+- All Python packages and their classes, routes, models, exceptions, enums
+- SQL tables from .sql files
+- gRPC services/messages from .proto files
+- Dependencies from pyproject.toml / package.json
+- Project structure overview
 
-### Tier 1 — High-signal project docs (read fully)
-
-```
-CLAUDE.md, AGENTS.md, .claude/CLAUDE.md
-README.md, README.rst, README.txt
-CONTRIBUTING.md, ARCHITECTURE.md, DESIGN.md, ADR/*.md
-docs/architecture.md, docs/design.md, docs/conventions.md
-```
-
-Each ADR = at least 1 memory. README with architecture section = at least 1 memory.
-
-### Tier 2 — Config and dependency manifests (read fully)
-
-```
-pyproject.toml, setup.cfg, setup.py, requirements*.txt
-package.json, tsconfig.json, deno.json
-Cargo.toml, go.mod, Gemfile, build.gradle, pom.xml
-Makefile, Justfile, Taskfile.yml
-docker-compose.yml, Dockerfile
-.github/workflows/*.yml, .gitlab-ci.yml, Jenkinsfile
-.env.example, .envrc
+```python
+scan = project_scan(directory="<absolute path to project root>")
 ```
 
-Extract: stack + versions, key deps with purpose, CI pipeline steps, Docker base image + multi-stage setup, env vars needed.
+The result contains `suggested_memories` — a list of pre-synthesized memory candidates ready to store. It also contains `doc_files_to_read`, `adr_files_to_read`, and `config_files_to_read` for the next steps.
 
-### Tier 3 — Structural exploration
+## Step 3: Store scan results
 
-```
-# Directory tree — top 3 levels via Glob
-Glob pattern: "**/*/", max-depth 3
+**On a fresh DB, skip dedup — store directly.** On re-init, search before each store.
 
-# Entry points
-main.py, app.py, index.ts, main.go, lib.rs, src/main.*
-manage.py, wsgi.py, asgi.py
+For each item in `scan["suggested_memories"]`:
 
-# Config files that reveal conventions
-.editorconfig, .prettierrc, .eslintrc*, ruff.toml, .ruff.toml
-mypy.ini, pyrightconfig.json, tox.ini
-```
-
-Store: project layout overview (which dirs hold what), entry points and how app boots, linter/formatter config summary.
-
-### Tier 4 — Source code structure (MANDATORY — do NOT skip)
-
-**You MUST execute every step below. Do NOT skip to Step 3 after reading docs and config.**
-
-Scan source modules to extract architecture that lives in code, not docs.
-
-**Procedure — execute ALL of these in order:**
-
-**4a. Discover all modules.** Run these Glob commands. Do not skip.
-
-```
-Glob: "src/**/__init__.py", "<pkg>/**/__init__.py"
-Glob: "src/*/", "<pkg>/*/"
+```python
+memory_store(
+    content=item["content"],
+    memory_type=item["memory_type"],
+    tags=item["tags"],
+)
 ```
 
-List every module found. This is your checklist — store at least 1 memory per module.
+Store ALL of them. Do not filter or skip. The scanner already did the filtering.
 
-**4b. For EACH module found in 4a**, read its `__init__.py` and 1-2 key files (the largest .py/.ts/.rs files, or files named models/routes/handlers/schema). Store a memory describing: what it does, key types, how it connects to other modules.
+## Step 4: Read docs and extract additional memories
 
-**4c. Grep across entire codebase for domain patterns.** Run ALL of these:
+The scanner finds code structure but can't read prose. Now read the files listed in the scan results and extract knowledge that the scanner missed.
 
-```
-Grep: "^class " — list all classes, store memory grouping them by purpose
-Grep: "BaseModel|dataclass|TypedDict|Protocol" — find domain models, store summary
-Grep: "router|blueprint|app.route|@app.|@router." — find API surface, store summary
-Grep: "CREATE TABLE|class.*Table|mapped_column" — find DB schema, store summary
-Grep: "class.*Error|class.*Exception" — find error types, store summary
-Grep: "class.*Enum|Literal\[" — find enums/constants, store as domain glossary
-Grep: "subscribe|publish|emit|Signal|Stream|on_event" — find event patterns, store if found
-```
+### 4a. Documentation files (`doc_files_to_read`)
 
-Each grep that returns results → at least 1 memory summarizing findings. Greps with no results → skip, nothing to store.
+Read each file. For each, extract memories about:
+- Architecture decisions and rationale
+- Conventions and style rules (→ `preference` type)
+- Workflows and procedures (→ `procedure` type)
+- Project-specific domain knowledge
+- Current state / in-progress work (→ `context` type)
 
-**4d. Read model/schema files.** Find and read:
-- Files in directories named `models/`, `schemas/`, `types/`, `entities/`
-- Migration files (latest 3-5)
-- Proto files, GraphQL schemas, OpenAPI specs
+Do NOT store verbatim content from CLAUDE.md or AGENTS.md — those are loaded every session. DO synthesize cross-cutting knowledge that spans multiple files.
 
-Store: entity relationships, key fields, constraints worth knowing.
+### 4b. ADR files (`adr_files_to_read`)
 
-### Tier 5 — Test structure and patterns
+Read each ADR. Store 1 memory per ADR capturing: the decision, the context, and the key reason.
 
-```
-# Test organization
-Glob: "tests/**/*.py", "test/**/*.py", "**/*_test.py", "**/*_test.go"
-Read: conftest.py, test helpers, fixtures
+### 4c. Config files (`config_files_to_read`)
 
-# What's being tested reveals what matters
-Grep: "def test_", "it(", "describe(" — skim test names for domain concepts
-```
+Read CI/CD configs, Makefiles, Dockerfiles. Extract:
+- CI pipeline steps and requirements (→ `procedure`)
+- Build/deploy workflows (→ `procedure`)
+- Docker setup details (→ `fact`)
+- Environment variables needed (→ `fact`)
 
-Store: test framework + runner config, key fixtures/factories, test DB strategy, parallelization setup.
-
-Do NOT read:
-- Lock files (package-lock.json, uv.lock, Cargo.lock, yarn.lock)
-- Generated files, build artifacts, node_modules, dist/, .git/
-- Binary files, images, fonts
-- Individual test implementations (test names suffice)
-- Vendored/third-party code
-
-## Step 3: Extract knowledge candidates
-
-For each file read, extract knowledge that passes this filter:
+### 4d. Test patterns
 
 ```
-Would a fresh agent work faster or make fewer mistakes knowing this?
-├── YES → candidate
-└── NO  → skip
+Glob: "tests/conftest.py", "test/conftest.py"
+Glob: "tests/**/*.py" — skim file names for patterns
 ```
 
-Bias toward storing. The cost of a redundant memory (superseded later) is low.
-The cost of a missing memory (user repeats themselves, agent makes wrong assumption) is high.
+Store: test framework, fixtures, DB strategy, parallelization.
 
-### What to extract
+## Step 5: Deduplicate and store
 
-| Category | Source files | Example memory |
-|----------|-------------|----------------|
-| **Architecture** | README, ARCHITECTURE, AGENTS.md, source structure | "Three-layer arch: MCP adapter → tool wrappers → SqliteDatabase. All SQL lives in sqlite_adapter.py" |
-| **Module map** | __init__.py, imports, directory structure | "services/ has 6 modules: auth (JWT+RBAC), billing (Stripe), notifications (email+push), search (Elasticsearch), inventory (warehouse ops), reporting (async PDF gen)" |
-| **Domain model** | Models, schemas, migrations, enums | "Core entities: Order (stateful, FSM), Product (immutable after publish), Warehouse (has zones/bins), User (has roles via RBAC). All IDs are NewType UUIDs." |
-| **API surface** | Routes, controllers, gRPC protos | "REST API: /api/v2/ prefix. 47 endpoints across 8 routers. Auth via Bearer JWT. Rate limited 100/min per user." |
-| **Data layer** | ORM models, migrations, raw SQL | "Postgres 15. 34 tables. Key: orders→order_lines→products. Soft deletes on orders. Partitioned by created_at on events table." |
-| **Conventions** | CONTRIBUTING, CLAUDE.md, linter configs | "No underscore prefixes on attributes. Public by default. No mutable globals." |
-| **Dependencies & stack** | pyproject.toml, package.json, Cargo.toml | "Python 3.11+, key deps: mcp[cli], aiosqlite, sqlite-vec, fastembed, pydantic" |
-| **Build & test** | Makefile, CI configs, pyproject.toml | "CI: ruff check, ruff format --check, ty check, pytest 100% coverage required" |
-| **Test patterns** | conftest.py, test structure, fixtures | "Tests use testcontainers for Postgres+Redis. Factory pattern via conftest fixtures. 8 parallel pytest workers split by module." |
-| **Deploy & infra** | Docker, CI/CD, Makefile | "Deploy via git tag vX.Y.Z → CI builds and publishes to PyPI" |
-| **Project structure** | Directory tree, entry points | "Entry point: rekal/cli.py. MCP server: rekal/adapters/mcp_adapter.py" |
-| **Key decisions** | ADRs, DESIGN.md, README | "Chose SQLite over Postgres for zero-config single-file deployment" |
-| **Workflows** | CONTRIBUTING, Makefile, CI | "PR workflow: branch from main, all CI checks must pass, squash merge" |
-| **Error handling** | Exception classes, error middleware | "Custom exception hierarchy: AppError → {ValidationError, NotFoundError, AuthError}. All caught by error_middleware → JSON error response." |
-| **Event/async patterns** | Message queues, signals, streams | "Redis Streams for async events. 12 event types. Consumers in workers/ dir. Retry with exponential backoff, DLQ after 5 failures." |
-| **Cross-cutting concerns** | Middleware, decorators, mixins | "Auth decorator @require_role('admin') on protected endpoints. Audit logging via middleware on all mutations. Request ID propagated via contextvars." |
-| **Domain glossary** | README, docs, code comments, enums | "Content code = barcode type for warehouse items. Pick = retrieve item from bin. Putaway = store item in bin. Wave = batch of picks optimized for walk path." |
-
-### What NOT to extract
-
-- Verbatim content from CLAUDE.md or AGENTS.md — those are loaded every session. DO synthesize cross-cutting knowledge that spans multiple files into single memories.
-- Individual function signatures or line numbers — trivially re-discoverable
-- Boilerplate from templates (default CI configs, standard Dockerfile patterns)
-- Version numbers that change frequently (pin knowledge to concepts, not versions)
-- License text, badges, marketing copy
-
-## Step 4: Deduplicate and store
-
-For each candidate, search before storing to avoid duplicates:
+For memories from Step 4 (not Step 3 — those are already unique):
 
 ```python
 memory_search(query="<candidate topic>", limit=5)
 ```
-
-Apply:
 
 ```
 Search results?
 ├── No match         → memory_store(content, memory_type, tags)
 ├── Same info exists → SKIP (duplicate)
 ├── Outdated version → memory_supersede(old_id, new_content)
-└── Contradicts      → memory_supersede(old_id, new_content) — include what changed
+└── Contradicts      → memory_supersede(old_id, new_content)
 ```
 
-**On a fresh DB (no existing memories), skip the search step entirely** — there's nothing to dedup against. Just store directly. This dramatically speeds up init on new projects.
+**On a fresh DB, skip search — store directly.**
 
 ### Pick memory_type
 
@@ -229,13 +132,11 @@ Every memory must be **self-contained**. A fresh agent with zero context reads i
 
 ```
 Good: "rekal uses three-layer architecture: MCP adapter (mcp_adapter.py) creates
-      FastMCP server and manages lifespan → tool modules in adapters/tools/ are
-      thin @mcp.tool() wrappers → SqliteDatabase dataclass holds all SQL queries.
-      New tool = add method to SqliteDatabase + thin wrapper in tools/*.py."
+      FastMCP server → tool modules in adapters/tools/ are thin @mcp.tool()
+      wrappers → SqliteDatabase dataclass holds all SQL queries."
 
 Bad:  "Three-layer architecture"          — too vague
 Bad:  "See AGENTS.md for architecture"    — not self-contained
-Bad:  "As described in the README..."     — references source
 ```
 
 ### Tags must be specific
@@ -244,26 +145,6 @@ Bad:  "As described in the README..."     — references source
 Good: ["architecture", "mcp", "sqlite", "tool-pattern"]
 Bad:  ["code", "project", "structure"]
 ```
-
-## Step 5: Batch efficiently
-
-Group related candidates. Store in logical order:
-
-1. Project identity and stack
-2. High-level architecture and structure
-3. Module map (what each module/package does)
-4. Domain model and key entities
-5. API surface and routes
-6. Data layer (DB schema, key tables, relationships)
-7. Conventions and style
-8. Build, test, CI
-9. Test patterns and fixtures
-10. Deploy and infra
-11. Event/async patterns and cross-cutting concerns
-12. Domain glossary
-13. Key decisions (ADRs)
-
-This ordering helps if the user interrupts — most valuable knowledge lands first.
 
 ## Step 6: Verify and report
 
@@ -275,62 +156,44 @@ memory_conflicts()
 Summarize what was captured:
 
 > **rekal init complete for `myproject`:**
-> - 12 memories stored (4 fact, 3 preference, 3 procedure, 2 context)
+> - 45 memories stored (30 fact, 5 preference, 7 procedure, 3 context)
 > - 2 existing memories superseded
 > - 0 conflicts
 >
-> **Captured:**
-> - Architecture: three-layer MCP → tools → DB
-> - Stack: Python 3.11, mcp[cli], aiosqlite, sqlite-vec
-> - Conventions: no Any, no underscore prefixes, dataclasses everywhere
-> - CI: ruff + ty + pytest 100% coverage
-> - Test rules: no mocking, real SQLite, deterministic embeddings
+> **From scanner (automated):**
+> - Module map: 8 packages discovered
+> - API surface: 47 endpoints
+> - Domain models: 12 types
+> - Exceptions: 5 types
+> - DB tables: 15
+> - Stack: Python 3.11, FastAPI, asyncpg
 >
-> Run `/rekal-hygiene` later to clean up any issues that emerge.
-
-## Step 7: Self-check — MANDATORY, do NOT skip
-
-After Step 6, verify you actually executed all tiers. **Run this checklist before finishing.**
-
-**Did you execute Tier 4?** If you never ran the Grep commands from 4c or never read module `__init__.py` files from 4b, go back and do it now.
-
-**Category coverage.** For EACH category below, verify you stored at least 1 memory — IF the codebase has that category. Not every project has events or a domain glossary, and that's fine. But if the codebase has routes and you stored nothing about API surface, you skipped it.
-
-```
-□ Module map (what each package/dir does)     → missing? Run Tier 4a-4b
-□ Domain model (entities, relationships)       → missing? Grep BaseModel/dataclass, read models/
-□ API surface (routes, endpoints, handlers)    → missing? Grep router/app.route, read route files
-□ Data layer (tables, schema, migrations)      → missing? Grep CREATE TABLE, read migrations
-□ Error handling (exception hierarchy)         → missing? Grep class.*Error
-□ Conventions (style, linting, naming)         → missing? Re-read CLAUDE.md, linter configs
-□ CI/CD pipeline                               → missing? Re-read workflow files
-```
-
-If a category doesn't exist in the codebase, skip it. Only store what's actually there.
+> **From docs (manual extraction):**
+> - Architecture decisions from 6 ADRs
+> - Conventions: ruff, mypy, 100-char lines
+> - CI: Azure Pipelines, 8 parallel pytest jobs
+> - Domain glossary: warehouse terms
+>
+> Run `/rekal-save` at end of future sessions to maintain.
 
 ## Boundaries
 
 - **Read-only on the codebase.** Never modify project files.
 - **No secrets.** Skip .env files with real values. Only read .env.example.
-- **Scan source structure, not every line.** Read __init__.py, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently. Goal: understand the shape of each module without reading its internals.
-- **Dedup is mandatory.** Never skip the search-before-store step.
+- **Store all scan results.** The scanner already filtered — don't second-guess it.
+- **Dedup is mandatory for doc-derived memories.** Never skip the search-before-store step (except on fresh DB).
 - **Ask before overwriting.** If existing memories conflict with what the codebase says, present both and ask which is correct.
-- **Execute all tiers.** If you only stored memories from docs and config, you skipped Tier 4. Go back and scan source code structure.
 - **Session-level learning via `/rekal-save`.** Init captures the structural 80%. Runtime discoveries happen via `/rekal-save`.
 
 ## Large codebases
 
 For monorepos or projects with 10+ top-level directories:
 
-1. Scan all top-level READMEs and __init__.py files first to build a map
-2. Process ALL areas — don't stop after one module.
-3. Report progress after every 10 memories stored
-4. Only ask user to pick focus areas if the codebase has 50+ top-level directories (true monorepo scale)
-
-For a typical large project (5-20 modules), scan everything without asking. The user ran init to get comprehensive coverage, not partial.
+1. Run `project_scan` — it handles large codebases efficiently
+2. Store all scan results (this is fast — no manual reading needed)
+3. For docs: scan all top-level READMEs first, then process by area
+4. Only ask user to pick focus areas if 50+ top-level directories
 
 ## Re-running
 
-Safe to re-run. Dedup ensures no duplicates. Changed knowledge gets superseded. New files get picked up. Report what changed vs last run:
-
-> "Re-init for `backend`: 2 new memories, 3 superseded, 14 unchanged (skipped)."
+Safe to re-run. The scanner produces the same results. Dedup ensures no duplicates. Changed knowledge gets superseded. Report what changed vs last run.
