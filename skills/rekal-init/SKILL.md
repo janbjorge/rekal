@@ -14,15 +14,14 @@ Bootstrap rekal memory from a codebase.
 
 ## HARD REQUIREMENTS — read before starting
 
-1. **Target: 40-80 memories** for a substantial project. Fewer than 30 = failure, go back and extract more.
-2. **You MUST execute Tier 4** (source code scanning). This is not optional. Most memories come from here.
-3. **You MUST run every Grep command** listed in Tier 4c. Each grep that returns results = at least 1 memory.
-4. **You MUST store at least 1 memory per source module** found in the codebase.
-5. **You MUST run the Step 7 self-check** before reporting. If under 30, loop back.
+1. **You MUST execute ALL tiers**, including Tier 4 (source code scanning). This is not optional.
+2. **You MUST run every Grep command** listed in Tier 4c. Each grep that returns results = at least 1 memory.
+3. **You MUST store at least 1 memory per source module** found in the codebase.
+4. **You MUST run the Step 7 self-check** before reporting.
 
-Common failure: agent reads docs + config (Tiers 1-2), stores ~20 memories, skips Tiers 4-5 entirely. **DO NOT DO THIS.**
+Common failure: agent reads docs + config (Tiers 1-2), stores some memories, then skips Tiers 4-5 entirely. **DO NOT DO THIS.**
 
-Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves. Every module, every domain concept, every non-obvious pattern deserves a memory.
+Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves.
 
 ## Step 0: Pre-flight
 
@@ -48,7 +47,7 @@ memory_set_project(project="<name>")
 
 Search for these files in priority order. Read every file that exists. Skip what's missing.
 
-### Tier 1 — High-signal project docs (read fully) → expect 5-15 memories
+### Tier 1 — High-signal project docs (read fully)
 
 ```
 CLAUDE.md, AGENTS.md, .claude/CLAUDE.md
@@ -57,9 +56,9 @@ CONTRIBUTING.md, ARCHITECTURE.md, DESIGN.md, ADR/*.md
 docs/architecture.md, docs/design.md, docs/conventions.md
 ```
 
-Each ADR = at least 1 memory. README with architecture section = 2-3 memories. CLAUDE.md conventions = 3-5 memories.
+Each ADR = at least 1 memory. README with architecture section = at least 1 memory.
 
-### Tier 2 — Config and dependency manifests (read fully) → expect 5-10 memories
+### Tier 2 — Config and dependency manifests (read fully)
 
 ```
 pyproject.toml, setup.cfg, setup.py, requirements*.txt
@@ -73,7 +72,7 @@ docker-compose.yml, Dockerfile
 
 Extract: stack + versions, key deps with purpose, CI pipeline steps, Docker base image + multi-stage setup, env vars needed.
 
-### Tier 3 — Structural exploration → expect 3-5 memories
+### Tier 3 — Structural exploration
 
 ```
 # Directory tree — top 3 levels via Glob
@@ -90,22 +89,22 @@ mypy.ini, pyrightconfig.json, tox.ini
 
 Store: project layout overview (which dirs hold what), entry points and how app boots, linter/formatter config summary.
 
-### Tier 4 — Source code structure → MANDATORY, expect 15-30 memories
+### Tier 4 — Source code structure (MANDATORY — do NOT skip)
 
-**THIS IS THE MOST IMPORTANT TIER. You MUST execute every step below. Do NOT skip to Step 3 after reading docs and config. The majority of useful memories come from here.**
+**You MUST execute every step below. Do NOT skip to Step 3 after reading docs and config.**
 
 Scan source modules to extract architecture that lives in code, not docs.
 
 **Procedure — execute ALL of these in order:**
 
-**4a. Discover all modules.** Run these Glob/Grep commands. Do not skip any.
+**4a. Discover all modules.** Run these Glob commands. Do not skip.
 
 ```
 Glob: "src/**/__init__.py", "<pkg>/**/__init__.py"
 Glob: "src/*/", "<pkg>/*/"
 ```
 
-List every module found. This is your checklist — you MUST store at least 1 memory per module.
+List every module found. This is your checklist — store at least 1 memory per module.
 
 **4b. For EACH module found in 4a**, read its `__init__.py` and 1-2 key files (the largest .py/.ts/.rs files, or files named models/routes/handlers/schema). Store a memory describing: what it does, key types, how it connects to other modules.
 
@@ -121,7 +120,7 @@ Grep: "class.*Enum|Literal\[" — find enums/constants, store as domain glossary
 Grep: "subscribe|publish|emit|Signal|Stream|on_event" — find event patterns, store if found
 ```
 
-Each grep that returns results → at least 1 memory summarizing findings.
+Each grep that returns results → at least 1 memory summarizing findings. Greps with no results → skip, nothing to store.
 
 **4d. Read model/schema files.** Find and read:
 - Files in directories named `models/`, `schemas/`, `types/`, `entities/`
@@ -130,9 +129,7 @@ Each grep that returns results → at least 1 memory summarizing findings.
 
 Store: entity relationships, key fields, constraints worth knowing.
 
-**If you finish Tier 4 with fewer than 10 memories, you skipped steps. Go back and re-execute 4a-4d.**
-
-### Tier 5 — Test structure and patterns → expect 2-5 memories
+### Tier 5 — Test structure and patterns
 
 ```
 # Test organization
@@ -266,7 +263,7 @@ Group related candidates. Store in logical order:
 12. Domain glossary
 13. Key decisions (ADRs)
 
-This ordering helps if the user interrupts — most valuable knowledge lands first. Groups 3-6 are where large codebases need the most coverage.
+This ordering helps if the user interrupts — most valuable knowledge lands first.
 
 ## Step 6: Verify and report
 
@@ -293,31 +290,23 @@ Summarize what was captured:
 
 ## Step 7: Self-check — MANDATORY, do NOT skip
 
-After Step 6, count memories stored. **You MUST run this checklist before finishing.**
+After Step 6, verify you actually executed all tiers. **Run this checklist before finishing.**
 
-**Check 1: Total count.**
-```
-memories_stored >= 30 on a project with 5+ source modules?
-├── NO  → STOP. You under-extracted. Execute Tier 4 steps 4a-4d again.
-│         You likely skipped the grep commands or didn't read module files.
-│         Go back NOW. Do not report until you hit 30+.
-└── YES → Continue to Check 2.
-```
+**Did you execute Tier 4?** If you never ran the Grep commands from 4c or never read module `__init__.py` files from 4b, go back and do it now.
 
-**Check 2: Category coverage.** For EACH category below, verify you stored at least 1 memory. If missing, execute the fix immediately — do not just note it.
+**Category coverage.** For EACH category below, verify you stored at least 1 memory — IF the codebase has that category. Not every project has events or a domain glossary, and that's fine. But if the codebase has routes and you stored nothing about API surface, you skipped it.
 
 ```
-□ Module map (what each package/dir does)     → missing? Run Tier 4a-4b again
+□ Module map (what each package/dir does)     → missing? Run Tier 4a-4b
 □ Domain model (entities, relationships)       → missing? Grep BaseModel/dataclass, read models/
 □ API surface (routes, endpoints, handlers)    → missing? Grep router/app.route, read route files
 □ Data layer (tables, schema, migrations)      → missing? Grep CREATE TABLE, read migrations
 □ Error handling (exception hierarchy)         → missing? Grep class.*Error
 □ Conventions (style, linting, naming)         → missing? Re-read CLAUDE.md, linter configs
 □ CI/CD pipeline                               → missing? Re-read workflow files
-□ Domain glossary (business terms)             → missing? Grep Enum, read README domain section
 ```
 
-**A 20-memory init on a large project means Tier 4 was skipped. This is the #1 failure mode. Fix it.**
+If a category doesn't exist in the codebase, skip it. Only store what's actually there.
 
 ## Boundaries
 
@@ -326,7 +315,7 @@ memories_stored >= 30 on a project with 5+ source modules?
 - **Scan source structure, not every line.** Read __init__.py, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently. Goal: understand the shape of each module without reading its internals.
 - **Dedup is mandatory.** Never skip the search-before-store step.
 - **Ask before overwriting.** If existing memories conflict with what the codebase says, present both and ask which is correct.
-- **Aim for 40-80 memories** on a substantial codebase (10+ modules). 20 is too few — it means you skipped module-level architecture, domain model, API surface, and cross-cutting patterns. If you finish with <30 memories on a large project, go back and scan source code structure more aggressively.
+- **Execute all tiers.** If you only stored memories from docs and config, you skipped Tier 4. Go back and scan source code structure.
 - **Session-level learning via `/rekal-save`.** Init captures the structural 80%. Runtime discoveries happen via `/rekal-save`.
 
 ## Large codebases
@@ -334,7 +323,7 @@ memories_stored >= 30 on a project with 5+ source modules?
 For monorepos or projects with 10+ top-level directories:
 
 1. Scan all top-level READMEs and __init__.py files first to build a map
-2. Process ALL areas — don't stop after one module. Aim for 3-5 memories per major module.
+2. Process ALL areas — don't stop after one module.
 3. Report progress after every 10 memories stored
 4. Only ask user to pick focus areas if the codebase has 50+ top-level directories (true monorepo scale)
 
