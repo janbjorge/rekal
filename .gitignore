@@ -48,6 +48,10 @@ rekal/_version.py
 # Claude Code
 .claude/
 
+# Benchmark data/cache
+bench/locomo10.json
+bench/locomo_summaries.json
+
 # Environment
 .env
 .env.*
