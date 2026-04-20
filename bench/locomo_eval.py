@@ -256,7 +256,7 @@ def load_conversations(path: Path) -> list[Conversation]:
         qa_pairs = [
             QAPair(
                 question=qa["question"],
-                answer=str(qa.get("answer") or qa.get("adversarial_answer", "")),
+                answer=str(qa["answer"] if "answer" in qa else qa.get("adversarial_answer", "")),
                 evidence=tuple(qa.get("evidence", ())),
                 category=qa.get("category", 0),
             )
@@ -382,8 +382,9 @@ def memory_to_sessions(
 ) -> frozenset[int]:
     found: set[int] = set()
 
+    # Match bracketed dia_ids to avoid substring collisions (D1:3 vs D1:30)
     for sess_idx, session in enumerate(sessions, 1):
-        if any(turn.dia_id in content for turn in session):
+        if any(f"[{turn.dia_id}]" in content for turn in session):
             found.add(sess_idx)
 
     for tag in (tags or []):
@@ -592,27 +593,26 @@ async def _run(data: Path | None) -> None:
         cache = json.loads(CACHE_PATH.read_text())
         print(f"Loaded {len(cache)} cached summaries")
 
-    approaches: dict[str, PopulateFn | None] = {
-        "raw": populate_raw,
-        "flat-file": populate_flat,
-    }
+    approach_names = ["raw", "flat-file"]
     if has_compress:
-        approaches["compressed"] = None
+        approach_names.append("compressed")
 
-    collected: dict[str, list[ConvResult]] = {name: [] for name in approaches}
+    collected: dict[str, list[ConvResult]] = {name: [] for name in approach_names}
 
     for ci, conv in enumerate(convs):
         qa_pairs = conv.qa_pairs
         print(f"\nConv {ci}/{len(convs)-1}: {len(conv.sessions)} sessions, {conv.turn_count} turns, {len(qa_pairs)} QA")
 
+        approach_fns: dict[str, PopulateFn] = {
+            "raw": populate_raw,
+            "flat-file": populate_flat,
+        }
+        if has_compress:
+            approach_fns["compressed"] = make_compress_fn(ci, cache)
+
         raw_tokens = 0
         progress_rows: list[tuple[str, int, Metrics, int]] = []
-        for name in approaches:
-            fn: PopulateFn
-            if name == "compressed":
-                fn = make_compress_fn(ci, cache)
-            else:
-                fn = approaches[name]  # type: ignore[assignment]
+        for name, fn in approach_fns.items():
             cr = await run_one(fn, conv, qa_pairs)
             avg = mean_metrics(cr.per_query)
 
