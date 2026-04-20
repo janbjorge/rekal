@@ -82,9 +82,13 @@ Extract: stack + versions, key deps with purpose, CI pipeline steps, Docker setu
 # Directory tree — top 3 levels via Glob
 Glob pattern: "**/*/", max-depth 3
 
-# Entry points
-main.py, app.py, index.ts, main.go, lib.rs, src/main.*
-manage.py, wsgi.py, asgi.py
+# Entry points — adapt to language
+main.py, app.py, manage.py, wsgi.py, asgi.py
+index.ts, index.js, src/index.*
+main.go, cmd/*/main.go
+src/main.rs, src/lib.rs
+Program.cs, Startup.cs
+src/main/*, src/App.*
 
 # Config files that reveal conventions
 .editorconfig, .prettierrc, .eslintrc*, ruff.toml, .ruff.toml
@@ -99,31 +103,44 @@ Also explore anything Tier 1 docs pointed to — scripts/ dirs, specific modules
 
 Scan the codebase through an architectural lens. The goal is to map the system's layers — not just list files, but understand what role each piece of code plays.
 
-**4a. Discover all modules:**
+**4a. Discover all modules/packages:**
 
-```
-Glob: "src/**/__init__.py", "<pkg>/**/__init__.py"
-Glob: "src/*/", "<pkg>/*/"
-```
+Adapt to the project's language. Find the top-level source units:
+
+| Language | Glob patterns |
+|----------|---------------|
+| Python | `<pkg>/**/__init__.py`, `src/*/` |
+| TypeScript/JS | `src/*/`, `packages/*/`, `src/*/index.ts` |
+| Go | `cmd/*/`, `internal/*/`, `pkg/*/` |
+| Rust | `src/*/`, `crates/*/`, `**/mod.rs` |
+| Java/Kotlin | `src/main/**/`, look for package dirs |
+| C#/.NET | `src/*/`, `**/*.csproj` |
+| General | `src/*/`, top-level dirs with source files |
 
 List every module found. This is your checklist — store at least 1 memory per module.
 
 **4b. Map the architecture by layer:**
 
-For EACH module from 4a, read its `__init__.py` and 1-2 key files. Classify what you find into these layers and store memories accordingly:
+For EACH module from 4a, read its entry file (index, mod, __init__, etc.) and 1-2 key files. Classify what you find into these layers and store memories accordingly:
 
 **Domain (the core — entities, value objects, business rules):**
+
+Search for type/model definitions, enums, and domain error types. Adapt patterns to the language:
 ```
-Grep: "BaseModel|dataclass|TypedDict" — find domain models and value objects
-Grep: "class.*Enum|Literal\[" — find domain vocabulary (statuses, types, categories)
-Grep: "class.*Error|class.*Exception" — find domain errors (business rule violations)
+# Models and value objects — look for structured type definitions
+Grep: "class |struct |type |interface |data class|record " in model/entity dirs
+Grep: "enum |enum class|sealed |union " — domain vocabulary (statuses, types, categories)
+
+# Domain errors — business rule violations
+Grep: "Error|Exception" in files named *error*, *exception*, or domain dirs
 ```
 Store: what entities exist, their relationships, invariants, domain-specific terms.
 
 **Ports (boundaries — interfaces the domain exposes or depends on):**
 ```
-Grep: "Protocol|ABC|abstractmethod" — find port definitions
-Grep: "class.*Repository|class.*Service|class.*Gateway" — find named ports
+# Abstract interfaces — the contracts between layers
+Grep: "interface |trait |Protocol|abstract |ABC" — port/contract definitions
+Grep: "Repository|Service|Gateway|Port|Store" — named boundaries
 ```
 Store: what abstractions exist, which are inbound (driving) vs outbound (driven).
 
@@ -131,32 +148,49 @@ Store: what abstractions exist, which are inbound (driving) vs outbound (driven)
 
 *Inbound adapters (drive the application):*
 ```
-Grep: "router|blueprint|app.route|@app.|@router." — HTTP/REST controllers
-Grep: "class.*Consumer|on_message|on_event" — message consumers
-Grep: "service.*pb2|class.*Servicer" — gRPC handlers
-Grep: "@cli|@click|@app.command" — CLI handlers
+# HTTP/REST/GraphQL — route and handler definitions
+Grep: "router|Route|Controller|@Get|@Post|@app.|HandleFunc|handler|resolver"
+
+# Message consumers
+Grep: "Consumer|Subscriber|on_message|on_event|Handler|Listener"
+
+# gRPC
+Grep: ".proto files" via Glob, or "Servicer|pb2|_grpc|tonic::service"
+
+# CLI entry points
+Grep: "command|subcommand|@cli|cobra|clap|argparse"
 ```
 Store: API surface (endpoints, route structure), message handlers, CLI commands.
 
 *Outbound adapters (driven by the application):*
 ```
-Grep: "CREATE TABLE|class.*Table|mapped_column|class.*Model" — DB/ORM repos
-Grep: "subscribe|publish|emit|Signal|Stream" — event/message publishers
-Grep: "httpx|requests|aiohttp|ClientSession" — external API clients
-Grep: "boto3|azure|google.cloud" — cloud service adapters
+# Persistence — DB schemas, ORM models, repository implementations
+Grep: "CREATE TABLE|TABLE|migration" in .sql files
+Grep: "Repository|Repo|Store|DAO" in implementation dirs (not interface dirs)
+Read: migration files (latest 3-5), schema files
+
+# Event/message publishers
+Grep: "publish|emit|produce|send_event|dispatch"
+
+# External service clients
+Grep: "HttpClient|fetch|axios|reqwest|http.Client|RestTemplate"
+Grep: "S3|Azure|GCP|aws-sdk|google.cloud|boto" — cloud services
 ```
 Store: persistence strategy (DB, tables, key relationships), external integrations, event/message patterns.
 
 **Infrastructure (wiring — DI, config, middleware, startup):**
 ```
-Grep: "Depends|Inject|@inject|Container|provide" — dependency injection
-Grep: "middleware|@app.middleware" — cross-cutting middleware
+# Dependency injection / service wiring
+Grep: "inject|provide|bind|Container|Module|@Injectable|Depends"
+
+# Middleware and cross-cutting
+Grep: "middleware|interceptor|filter|pipe|guard"
 ```
 Store: how layers are wired together, middleware chain, DI patterns.
 
 **4c. Read schema/model files in detail:**
 
-Find and read files in directories named `models/`, `schemas/`, `types/`, `entities/`, `domain/`. Read latest 3-5 migration files. Read proto files, GraphQL schemas, OpenAPI specs if they exist.
+Find and read files in directories named `models/`, `schemas/`, `types/`, `entities/`, `domain/`, or language equivalents. Read latest 3-5 migration files. Read proto files, GraphQL schemas, OpenAPI specs if they exist.
 
 Store: entity relationships, key fields, constraints worth knowing.
 
@@ -165,12 +199,18 @@ Each grep with results → at least 1 memory summarizing findings. No results �
 ### Tier 5 — Test structure and patterns
 
 ```
-Glob: "tests/**/*.py", "test/**/*.py", "**/*_test.py", "**/*_test.go"
-Read: conftest.py, test helpers, fixtures
-Grep: "def test_", "it(", "describe(" — skim test names for domain concepts
+# Find test files — adapt to language conventions
+Glob: "tests/", "test/", "**/*_test.*", "**/*.test.*", "**/*_spec.*", "**/*.spec.*"
+
+# Read test setup/config — fixtures, helpers, factories
+Glob: "conftest.py", "test_helper.*", "setup_test.*", "jest.config.*", "vitest.config.*"
+Glob: "tests/fixtures/", "testdata/", "test/support/"
+
+# Skim test names for domain concepts
+Grep: "def test_|func Test|it(|describe(|test(" — just names, not implementations
 ```
 
-Store: test framework, fixtures, DB strategy, parallelization.
+Store: test framework, fixtures/factories, DB/service strategy, parallelization.
 
 ### Do NOT read
 
@@ -337,18 +377,18 @@ Summarize what was captured:
 
 After Step 6, verify you actually executed all tiers.
 
-**Did you execute Tier 4?** If you never ran the Grep commands from 4c or never read module `__init__.py` files from 4b, go back and do it now.
+**Did you execute Tier 4?** If you never ran the Grep commands from 4b or never read module entry files, go back and do it now.
 
 **Category coverage.** For each layer below, check if the codebase has it. If it does and you stored nothing about it, go back and scan:
 
 ```
 □ Module map (what each package/dir does)       → missing? Run Tier 4a-4b
-□ Domain (entities, value objects, vocabulary)   → missing? Grep BaseModel/dataclass/Enum, read models/
-□ Domain errors                                  → missing? Grep class.*Error
-□ Ports (protocols, ABCs, interfaces)            → missing? Grep Protocol/ABC/abstractmethod
-□ Inbound adapters (routes, CLI, consumers)      → missing? Grep router/app.route/click
-□ Outbound adapters (DB, API clients, events)    → missing? Grep CREATE TABLE/httpx/publish
-□ Wiring / DI                                    → missing? Grep Depends/inject/Container
+□ Domain (entities, value objects, vocabulary)   → missing? Grep for type/struct/class defs, read model dirs
+□ Domain errors                                  → missing? Grep for Error/Exception types
+□ Ports (interfaces, traits, protocols)          → missing? Grep for interface/trait/abstract/Protocol
+□ Inbound adapters (routes, CLI, consumers)      → missing? Grep for route/controller/handler defs
+□ Outbound adapters (DB, API clients, events)    → missing? Grep for table defs, client usage, publish calls
+□ Wiring / DI                                    → missing? Grep for inject/provide/Container
 □ Conventions (style, linting, naming)           → missing? Re-read CLAUDE.md, linter configs
 □ CI/CD pipeline                                 → missing? Re-read workflow files
 ```
@@ -359,7 +399,7 @@ If a category doesn't exist in the codebase, skip it — only store what's actua
 
 - **Read-only on the codebase.** Never modify project files.
 - **No secrets.** Skip .env files with real values. Only read .env.example.
-- **Scan source structure, not every line.** Read __init__.py, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently.
+- **Scan source structure, not every line.** Read module entry files, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently.
 - **Dedup is mandatory on re-init.** On fresh DB, skip dedup.
 - **Ask before overwriting.** If existing memories conflict with what the codebase says, present both and ask which is correct.
 - **Execute all tiers.** If you only stored memories from docs and config, you skipped Tier 4. Go back.
@@ -369,7 +409,7 @@ If a category doesn't exist in the codebase, skip it — only store what's actua
 
 For monorepos or projects with 10+ top-level directories:
 
-1. Scan all top-level READMEs and __init__.py files first to build a map
+1. Scan all top-level READMEs and module entry files first to build a map
 2. Process ALL areas — don't stop after one module
 3. Report progress after every 10 memories stored
 4. Only ask user to pick focus areas if 50+ top-level directories (true monorepo scale)
