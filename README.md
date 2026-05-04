@@ -132,16 +132,20 @@ OpenCode does **not** auto-read `AGENTS.md` — you must list instruction files 
 
 ## Tools
 
-rekal exposes 16 MCP tools grouped into four categories.
+rekal exposes 21 MCP tools grouped into four categories.
 
 **Core** — read and write memories:
 
 | Tool | Purpose |
 |------|---------|
-| `memory_store` | Store a memory with type, project, and tags |
-| `memory_search` | Hybrid search across all memories |
+| `memory_store` | Store a durable memory with type, project, and tags |
+| `memory_store_scratch` | Store a transient note that auto-expires after `ttl_hours` (default 24h) |
+| `memory_search` | Hybrid search across memories; filter by `tier` (`durable`/`scratch`) |
 | `memory_update` | Edit content, tags, or type of an existing memory |
 | `memory_delete` | Remove a memory by ID |
+| `memory_prune` | Bulk-delete by scope (project / type / age); dry-run by default |
+| `memory_set_project` | Set the default project for the current session |
+| `memory_set_config` | Persist per-project scoring weights (`w_fts`, `w_vec`, `w_recency`, `half_life`) |
 
 **Smart write** — manage knowledge over time:
 
@@ -149,7 +153,7 @@ rekal exposes 16 MCP tools grouped into four categories.
 |------|---------|
 | `memory_supersede` | Replace a memory while linking the old one as history |
 | `memory_link` | Connect memories: `supersedes`, `contradicts`, or `related_to` |
-| `memory_build_context` | One call that returns relevant memories + conflicts + timeline |
+| `memory_build_context` | One call returning durable + scratch memories (per-tier budgets), conflicts, and timeline |
 
 **Introspection** — explore what's stored:
 
@@ -177,11 +181,13 @@ rekal exposes 16 MCP tools grouped into four categories.
 
 Everything lives in `~/.rekal/memory.db`. Three subsystems share it:
 
-- **memories table** — content, type, project, tags, timestamps, access counts
+- **memories table** — content, type, project, tags, timestamps, access counts, plus `tier` (`durable` or `scratch`) and optional `expires_at`
 - **FTS5 virtual table** — full-text index over content+tags+project, auto-synced via triggers
 - **sqlite-vec virtual table** — 384-dimensional vector index for semantic search
 
 Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_supersede` writes the new memory and creates a `supersedes` link in a single operation — old knowledge stays queryable with explicit lineage.
+
+**Tiers.** Durable memories live forever; scratch memories carry an `expires_at` and are hard-deleted on server start once past their TTL. Search, timeline, and topics hide expired scratch entries automatically. Use scratch for in-flight hypotheses and working notes that should not pollute the durable store.
 
 ### Embeddings
 
@@ -309,7 +315,10 @@ MCP Server (rekal)
 rekal serve    # Run as MCP server (default)
 rekal health   # Database health report
 rekal export   # Export all memories as JSON
+rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
 ```
+
+`rekal prune` requires at least one filter: `--project NAME`, `--memory-type TYPE`, `--older-than-days N`, or `--before "YYYY-MM-DD HH:MM:SS"`. Without `--yes` it only reports the match count.
 
 ## License
 
