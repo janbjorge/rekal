@@ -148,8 +148,7 @@ async def migrate_memories_table(db: aiosqlite.Connection) -> None:
     # in SCHEMA because executescript runs before this migration, so on
     # pre-tier DBs the columns don't exist yet when SCHEMA executes.
     await db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_memories_expires_tier "
-        "ON memories(expires_at, tier)"
+        "CREATE INDEX IF NOT EXISTS idx_memories_expires_tier ON memories(expires_at, tier)"
     )
 
 
