@@ -119,6 +119,7 @@ VEC_TABLE_SQL = (
     "id TEXT PRIMARY KEY, embedding float[%d])"
 )
 
+
 async def migrate_memories_table(db: aiosqlite.Connection) -> None:
     """Add tier/expires_at columns to memories on existing DBs.
 
@@ -130,9 +131,7 @@ async def migrate_memories_table(db: aiosqlite.Connection) -> None:
         async for row in cursor:
             cols.add(row[1])
     if "tier" not in cols:
-        await db.execute(
-            "ALTER TABLE memories ADD COLUMN tier TEXT NOT NULL DEFAULT 'durable'"
-        )
+        await db.execute("ALTER TABLE memories ADD COLUMN tier TEXT NOT NULL DEFAULT 'durable'")
     if "expires_at" not in cols:
         await db.execute("ALTER TABLE memories ADD COLUMN expires_at TEXT")
 

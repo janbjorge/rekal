@@ -278,8 +278,7 @@ async def test_timeline_excludes_expired(db: SqliteDatabase) -> None:
 async def test_topics_excludes_expired(db: SqliteDatabase) -> None:
     past = "2000-01-01 00:00:00"
     await db.store("kept", project="t", memory_type="fact")
-    await db.store("expired", project="t", memory_type="fact",
-                   tier="scratch", expires_at=past)
+    await db.store("expired", project="t", memory_type="fact", tier="scratch", expires_at=past)
 
     topics = await db.memory_topics(project="t")
     fact_topic = next(t for t in topics if t.topic == "fact")
@@ -341,9 +340,7 @@ async def test_migration_adds_columns_to_legacy_table() -> None:
             );
             """
         )
-        await raw.execute(
-            "INSERT INTO memories (id, content) VALUES ('legacy1', 'legacy row')"
-        )
+        await raw.execute("INSERT INTO memories (id, content) VALUES ('legacy1', 'legacy row')")
         await raw.commit()
 
         await migrate_memories_table(raw)
