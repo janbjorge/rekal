@@ -52,6 +52,49 @@ async def memory_store(
 
 
 @mcp.tool()
+async def memory_store_scratch(
+    ctx: Context,
+    content: Annotated[str, Field(description="Ephemeral note. Auto-expires after ttl_hours.")],
+    conversation_id: Annotated[
+        str,
+        Field(description="Conversation that scopes this scratch note. Required."),
+    ],
+    ttl_hours: Annotated[
+        float,
+        Field(description="Hours until expiry. Default 24."),
+    ] = 24.0,
+    memory_type: Annotated[
+        MemoryType,
+        Field(description="Category. Default 'context' (transient working memory)."),
+    ] = "context",
+    project: Annotated[str | None, Field(description="Project scope for this memory")] = None,
+    tags: Annotated[
+        list[str] | None,
+        Field(description='Tags for categorization, as a JSON array e.g. ["debug", "wip"]'),
+    ] = None,
+) -> str:
+    """Store a transient mid-task note that auto-evicts.
+
+    Use for working-memory: hypotheses, scratch findings, in-flight plans —
+    anything you want available this session but should not pollute the
+    durable store. Hidden from search/timeline/topics once expired.
+    """
+    db = ctx.request_context.lifespan_context.db
+    expiry_dt = datetime.now(UTC) + timedelta(hours=ttl_hours)
+    expires_at = expiry_dt.strftime("%Y-%m-%d %H:%M:%S")
+    memory_id = await db.store(
+        content,
+        memory_type=memory_type,
+        tier="scratch",
+        project=resolve_project(ctx, project),
+        conversation_id=conversation_id,
+        tags=tags,
+        expires_at=expires_at,
+    )
+    return f"Stored scratch memory {memory_id} (expires {expires_at})"
+
+
+@mcp.tool()
 async def memory_search(
     ctx: Context,
     query: Annotated[str, Field(description="Search query (used for both FTS and vector search)")],

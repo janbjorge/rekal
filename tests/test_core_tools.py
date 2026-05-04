@@ -13,6 +13,7 @@ from rekal.adapters.tools.core import (
     memory_set_config,
     memory_set_project,
     memory_store,
+    memory_store_scratch,
     memory_update,
 )
 
@@ -161,3 +162,56 @@ async def test_memory_prune_tool_uses_session_project(db: SqliteDatabase) -> Non
 async def test_memory_prune_tool_no_matches(db: SqliteDatabase) -> None:
     result = await memory_prune(_ctx(db), project="ghost", dry_run=False)
     assert "Deleted 0" in result
+
+
+async def test_memory_store_scratch_tool(db: SqliteDatabase) -> None:
+    conv = await db.conversation_start(title="scratch test")
+    result = await memory_store_scratch(_ctx(db), "wip note", conv)
+    assert "Stored scratch memory" in result
+    assert "expires" in result
+
+    mid = result.split()[3]
+    mem = await db.get(mid)
+    assert mem is not None
+    assert mem.tier == "scratch"
+    assert mem.expires_at is not None
+    assert mem.conversation_id == conv
+    assert mem.memory_type == "context"
+
+
+async def test_memory_store_scratch_custom_ttl(db: SqliteDatabase) -> None:
+    conv = await db.conversation_start()
+    result = await memory_store_scratch(
+        _ctx(db), "short-lived", conv, ttl_hours=1.0, memory_type="fact", tags=["wip"]
+    )
+    mid = result.split()[3]
+    mem = await db.get(mid)
+    assert mem is not None
+    assert mem.tier == "scratch"
+    assert mem.memory_type == "fact"
+    assert mem.tags == ["wip"]
+
+
+async def test_memory_store_scratch_uses_session_project(db: SqliteDatabase) -> None:
+    ctx = _ctx(db)
+    await memory_set_project(ctx, "scratch-proj")
+    conv = await db.conversation_start(project="scratch-proj")
+    result = await memory_store_scratch(ctx, "note", conv)
+    mid = result.split()[3]
+    mem = await db.get(mid)
+    assert mem is not None
+    assert mem.project == "scratch-proj"
+
+
+async def test_memory_store_scratch_negative_ttl_expires_immediately(
+    db: SqliteDatabase,
+) -> None:
+    conv = await db.conversation_start()
+    result = await memory_store_scratch(_ctx(db), "stale", conv, ttl_hours=-1.0)
+    mid = result.split()[3]
+    # Direct get returns the row even when expired.
+    mem = await db.get(mid)
+    assert mem is not None
+    # But search hides it.
+    hits = await memory_search(_ctx(db), "stale")
+    assert all(h["id"] != mid for h in hits)
