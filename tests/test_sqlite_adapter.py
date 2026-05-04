@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 
 
@@ -147,3 +149,83 @@ async def test_resolve_weights_per_call_overrides_config(db: SqliteDatabase) -> 
     await db.set_config("proj", "w_fts", "0.7")
     weights = await db.resolve_weights("proj", w_fts=0.1)
     assert weights.w_fts == 0.1  # per-call wins
+
+
+async def test_prune_requires_filter(db: SqliteDatabase) -> None:
+    with pytest.raises(ValueError, match="prune requires"):
+        await db.prune()
+
+
+async def test_prune_dry_run_returns_matches(db: SqliteDatabase) -> None:
+    keep = await db.store("Keep me", project="other")
+    drop1 = await db.store("Drop me", project="trash")
+    drop2 = await db.store("Drop me too", project="trash")
+
+    count, ids = await db.prune(project="trash", dry_run=True)
+    assert count == 2
+    assert set(ids) == {drop1, drop2}
+    # Nothing actually deleted on dry run
+    assert await db.get(drop1) is not None
+    assert await db.get(drop2) is not None
+    assert await db.get(keep) is not None
+
+
+async def test_prune_by_project_deletes(db: SqliteDatabase) -> None:
+    keep = await db.store("Keep me", project="other")
+    drop = await db.store("Drop me", project="trash")
+    await db.add_memory_link(drop, keep, "related_to")
+
+    count, ids = await db.prune(project="trash", dry_run=False)
+    assert count == 1
+    assert ids == [drop]
+    assert await db.get(drop) is None
+    assert await db.get(keep) is not None
+    # Link cleaned up
+    assert await db.memory_related(keep) == []
+
+
+async def test_prune_by_memory_type(db: SqliteDatabase) -> None:
+    fact_id = await db.store("A fact", memory_type="fact", project="p")
+    pref_id = await db.store("A preference", memory_type="preference", project="p")
+
+    count, _ = await db.prune(memory_type="fact", dry_run=False)
+    assert count == 1
+    assert await db.get(fact_id) is None
+    assert await db.get(pref_id) is not None
+
+
+async def test_prune_by_before_timestamp(db: SqliteDatabase) -> None:
+    old_id = await db.store("Old")
+    # Force created_at backwards
+    await db.db.execute(
+        "UPDATE memories SET created_at = '2000-01-01 00:00:00' WHERE id = ?",
+        (old_id,),
+    )
+    await db.db.commit()
+    new_id = await db.store("New")
+
+    count, ids = await db.prune(before="2020-01-01 00:00:00", dry_run=False)
+    assert count == 1
+    assert ids == [old_id]
+    assert await db.get(old_id) is None
+    assert await db.get(new_id) is not None
+
+
+async def test_prune_no_matches_skips_delete(db: SqliteDatabase) -> None:
+    await db.store("Stay", project="alive")
+    count, ids = await db.prune(project="ghost", dry_run=False)
+    assert count == 0
+    assert ids == []
+
+
+async def test_prune_combined_filters(db: SqliteDatabase) -> None:
+    a = await db.store("trash fact", memory_type="fact", project="trash")
+    b = await db.store("trash pref", memory_type="preference", project="trash")
+    c = await db.store("other fact", memory_type="fact", project="other")
+
+    count, ids = await db.prune(project="trash", memory_type="fact", dry_run=False)
+    assert count == 1
+    assert ids == [a]
+    assert await db.get(a) is None
+    assert await db.get(b) is not None
+    assert await db.get(c) is not None

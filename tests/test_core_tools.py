@@ -8,6 +8,7 @@ from rekal.adapters.mcp_adapter import AppContext
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.adapters.tools.core import (
     memory_delete,
+    memory_prune,
     memory_search,
     memory_set_config,
     memory_set_project,
@@ -113,3 +114,50 @@ async def test_memory_set_config_tool_no_project(db: SqliteDatabase) -> None:
     ctx = _ctx(db)
     result = await memory_set_config(ctx, "w_fts", "0.5")
     assert "No project" in result
+
+
+async def test_memory_prune_tool_requires_filter(db: SqliteDatabase) -> None:
+    result = await memory_prune(_ctx(db))
+    assert "No filter" in result
+
+
+async def test_memory_prune_tool_dry_run(db: SqliteDatabase) -> None:
+    await db.store("Drop", project="trash")
+    result = await memory_prune(_ctx(db), project="trash")
+    assert "Would delete 1" in result
+
+
+async def test_memory_prune_tool_executes(db: SqliteDatabase) -> None:
+    mid = await db.store("Drop", project="trash")
+    result = await memory_prune(_ctx(db), project="trash", dry_run=False)
+    assert "Deleted 1" in result
+    assert mid[:5] in result or "sample" in result
+    assert await db.get(mid) is None
+
+
+async def test_memory_prune_tool_older_than_days(db: SqliteDatabase) -> None:
+    old = await db.store("Old", project="p")
+    await db.db.execute(
+        "UPDATE memories SET created_at = '2000-01-01 00:00:00' WHERE id = ?", (old,)
+    )
+    await db.db.commit()
+    fresh = await db.store("Fresh", project="p")
+
+    result = await memory_prune(_ctx(db), older_than_days=1, dry_run=False)
+    assert "Deleted 1" in result
+    assert await db.get(old) is None
+    assert await db.get(fresh) is not None
+
+
+async def test_memory_prune_tool_uses_session_project(db: SqliteDatabase) -> None:
+    ctx = _ctx(db)
+    await memory_set_project(ctx, "session-proj")
+    mid = await db.store("In session", project="session-proj")
+    result = await memory_prune(ctx, dry_run=False)
+    assert "Deleted 1" in result
+    assert await db.get(mid) is None
+
+
+async def test_memory_prune_tool_no_matches(db: SqliteDatabase) -> None:
+    result = await memory_prune(_ctx(db), project="ghost", dry_run=False)
+    assert "Deleted 0" in result
