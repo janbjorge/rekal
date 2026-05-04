@@ -1,5 +1,6 @@
 """Core memory tools: store, search, delete, update."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from mcp.server.fastmcp import Context
@@ -119,6 +120,56 @@ async def memory_delete(
     if deleted:
         return f"Deleted memory {memory_id}"
     return f"Memory {memory_id} not found"
+
+
+@mcp.tool()
+async def memory_prune(
+    ctx: Context,
+    project: Annotated[
+        str | None,
+        Field(description="Restrict to this project scope. Pass session default with omitted."),
+    ] = None,
+    memory_type: Annotated[
+        MemoryType | None, Field(description="Restrict to this memory type")
+    ] = None,
+    older_than_days: Annotated[
+        int | None,
+        Field(description="Match memories older than N days (created_at < now - N days)"),
+    ] = None,
+    before: Annotated[
+        str | None,
+        Field(description="Match memories with created_at strictly less than this ISO timestamp"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        Field(description="Preview only; set false to actually delete. Default: true."),
+    ] = True,
+) -> str:
+    """Bulk-delete memories by scope. Requires at least one filter.
+
+    Use to prune old memories or wipe a project. Defaults to dry-run; set
+    ``dry_run=false`` to commit.
+    """
+    resolved_project = resolve_project(ctx, project)
+    cutoff = before
+    if older_than_days is not None:
+        cutoff_dt = datetime.now(UTC) - timedelta(days=older_than_days)
+        cutoff = cutoff_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    if resolved_project is None and memory_type is None and cutoff is None:
+        return "No filter set. Specify project, memory_type, older_than_days, or before."
+
+    db = ctx.request_context.lifespan_context.db
+    count, ids = await db.prune(
+        project=resolved_project,
+        memory_type=memory_type,
+        before=cutoff,
+        dry_run=dry_run,
+    )
+    verb = "Would delete" if dry_run else "Deleted"
+    sample = ", ".join(ids[:5])
+    suffix = f" (sample ids: {sample})" if ids else ""
+    return f"{verb} {count} memories{suffix}"
 
 
 @mcp.tool()

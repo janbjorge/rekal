@@ -417,6 +417,88 @@ class SqliteDatabase:
         await self.db.commit()
         return cursor.rowcount > 0
 
+    async def prune(
+        self,
+        *,
+        project: str | None = None,
+        memory_type: MemoryType | None = None,
+        before: str | None = None,
+        dry_run: bool = True,
+    ) -> tuple[int, list[str]]:
+        """Bulk-delete memories matching scope filters.
+
+        Requires at least one of project / memory_type / before to avoid an
+        accidental full wipe. ``before`` is an ISO timestamp ``YYYY-MM-DD HH:MM:SS``;
+        memories with ``created_at`` strictly less than it are pruned. ``dry_run=True``
+        (default) returns the matching IDs without deleting.
+        """
+        if project is None and memory_type is None and before is None:
+            msg = "prune requires at least one filter: project, memory_type, or before"
+            raise ValueError(msg)
+
+        ids: list[str] = []
+        async with self.db.execute(
+            """
+            SELECT id FROM memories
+            WHERE (? IS NULL OR project = ?)
+              AND (? IS NULL OR memory_type = ?)
+              AND (? IS NULL OR created_at < ?)
+            """,
+            (project, project, memory_type, memory_type, before, before),
+        ) as cursor:
+            async for row in cursor:
+                ids.append(row["id"])
+
+        if dry_run or not ids:
+            return len(ids), ids
+
+        filter_params: tuple[SqlParam, ...] = (
+            project,
+            project,
+            memory_type,
+            memory_type,
+            before,
+            before,
+        )
+        await self.db.execute(
+            """
+            DELETE FROM memory_vec WHERE id IN (
+                SELECT id FROM memories
+                WHERE (? IS NULL OR project = ?)
+                  AND (? IS NULL OR memory_type = ?)
+                  AND (? IS NULL OR created_at < ?)
+            )
+            """,
+            filter_params,
+        )
+        await self.db.execute(
+            """
+            DELETE FROM memory_links WHERE from_id IN (
+                SELECT id FROM memories
+                WHERE (? IS NULL OR project = ?)
+                  AND (? IS NULL OR memory_type = ?)
+                  AND (? IS NULL OR created_at < ?)
+            ) OR to_id IN (
+                SELECT id FROM memories
+                WHERE (? IS NULL OR project = ?)
+                  AND (? IS NULL OR memory_type = ?)
+                  AND (? IS NULL OR created_at < ?)
+            )
+            """,
+            filter_params + filter_params,
+        )
+        await self.db.execute(
+            """
+            DELETE FROM memories
+            WHERE (? IS NULL OR project = ?)
+              AND (? IS NULL OR memory_type = ?)
+              AND (? IS NULL OR created_at < ?)
+            """,
+            filter_params,
+        )
+        await self.db.commit()
+        return len(ids), ids
+
     async def update(
         self,
         memory_id: str,
