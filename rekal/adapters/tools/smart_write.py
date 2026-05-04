@@ -65,7 +65,17 @@ async def memory_build_context(
     ctx: Context,
     query: Annotated[str, Field(description="Query to build context for")],
     project: Annotated[str | None, Field(description="Filter to this project")] = None,
-    limit: Annotated[int, Field(description="Maximum memories to include")] = 10,
+    limit: Annotated[
+        int,
+        Field(description="Max durable-tier memories to include"),
+    ] = 10,
+    scratch_limit: Annotated[
+        int,
+        Field(
+            description="Max scratch-tier memories to include. "
+            "Bounded separately from durable. Set 0 to skip scratch."
+        ),
+    ] = 5,
     w_fts: Annotated[
         float | None,
         Field(
@@ -89,7 +99,12 @@ async def memory_build_context(
         Field(description="Recency half-life in days. Default: project config or 30.0"),
     ] = None,
 ) -> dict[str, str | list[dict[str, str | int | float | list[str] | None]]]:
-    """Build rich context for a query: relevant memories + conflicts + timeline."""
+    """Build rich context for a query with per-tier budgets.
+
+    Returns ``memories`` (durable tier, top ``limit``) and ``scratch``
+    (scratch tier, top ``scratch_limit``) so the caller sees a bounded
+    working context per tier instead of a single flat list.
+    """
     db = ctx.request_context.lifespan_context.db
     resolved_project = resolve_project(ctx, project)
     file_config = ctx.request_context.lifespan_context.file_config
@@ -101,5 +116,11 @@ async def memory_build_context(
         half_life=half_life,
         file_config=file_config,
     )
-    result = await db.build_context(query, project=resolved_project, limit=limit, weights=weights)
+    result = await db.build_context(
+        query,
+        project=resolved_project,
+        limit=limit,
+        scratch_limit=scratch_limit,
+        weights=weights,
+    )
     return result.model_dump()

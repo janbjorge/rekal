@@ -7,7 +7,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from rekal.adapters.mcp_adapter import mcp, resolve_project
-from rekal.models import MemoryType
+from rekal.models import MemoryTier, MemoryType
 from rekal.scoring import ScoringWeights
 
 
@@ -103,6 +103,10 @@ async def memory_search(
     memory_type: Annotated[
         MemoryType | None, Field(description="Filter results to this memory type")
     ] = None,
+    tier: Annotated[
+        MemoryTier | None,
+        Field(description="Filter to 'durable' or 'scratch' tier. Default: both."),
+    ] = None,
     conversation_id: Annotated[
         str | None, Field(description="Filter results to this conversation")
     ] = None,
@@ -146,6 +150,7 @@ async def memory_search(
         limit=limit,
         project=resolved_project,
         memory_type=memory_type,
+        tier=tier,
         conversation_id=conversation_id,
         weights=weights,
     )

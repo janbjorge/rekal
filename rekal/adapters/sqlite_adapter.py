@@ -366,6 +366,7 @@ class SqliteDatabase:
         limit: int = 10,
         project: str | None = None,
         memory_type: MemoryType | None = None,
+        tier: MemoryTier | None = None,
         conversation_id: str | None = None,
         weights: ScoringWeights,
     ) -> list[MemoryResult]:
@@ -421,6 +422,8 @@ class SqliteDatabase:
             if project is not None and mem.project != project:
                 continue
             if memory_type is not None and mem.memory_type != memory_type:
+                continue
+            if tier is not None and mem.tier != tier:
                 continue
             if conversation_id is not None and mem.conversation_id != conversation_id:
                 continue
@@ -907,21 +910,43 @@ class SqliteDatabase:
         *,
         project: str | None = None,
         limit: int = 10,
+        scratch_limit: int = 5,
         weights: ScoringWeights,
     ) -> ContextResult:
-        memories = await self.search(query, limit=limit, project=project, weights=weights)
+        """Build context with per-tier budgets so scratch ⊥ durable.
+
+        ``limit`` bounds the durable tier; ``scratch_limit`` bounds the
+        scratch tier. Each tier is searched independently so a noisy
+        durable hit cannot crowd out fresh scratch context (and vice versa).
+        """
+        memories = await self.search(
+            query, limit=limit, project=project, tier="durable", weights=weights
+        )
+        scratch = (
+            await self.search(
+                query,
+                limit=scratch_limit,
+                project=project,
+                tier="scratch",
+                weights=weights,
+            )
+            if scratch_limit > 0
+            else []
+        )
         conflicts = await self.memory_conflicts(project=project)
 
-        if memories:
-            oldest = min(m.created_at for m in memories)
-            newest = max(m.created_at for m in memories)
-            timeline_summary = f"{len(memories)} memories from {oldest} to {newest}"
+        combined = memories + scratch
+        if combined:
+            oldest = min(m.created_at for m in combined)
+            newest = max(m.created_at for m in combined)
+            timeline_summary = f"{len(combined)} memories from {oldest} to {newest}"
         else:
             timeline_summary = "No memories found"
 
         return ContextResult(
             query=query,
             memories=memories,
+            scratch=scratch,
             conflicts=conflicts,
             timeline_summary=timeline_summary,
         )

@@ -137,4 +137,57 @@ async def test_build_context(db: SqliteDatabase) -> None:
 async def test_build_context_empty(db: SqliteDatabase) -> None:
     ctx = await db.build_context("nonexistent xyzzy", weights=ScoringWeights())
     assert ctx.memories == []
+    assert ctx.scratch == []
     assert ctx.timeline_summary == "No memories found"
+
+
+async def test_build_context_splits_tiers(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    durable_id = await db.store("durable note about Python")
+    scratch_id = await db.store("scratch note about Python", tier="scratch", expires_at=future)
+
+    ctx = await db.build_context("Python", weights=ScoringWeights())
+    durable_ids = {m.id for m in ctx.memories}
+    scratch_ids = {m.id for m in ctx.scratch}
+    assert durable_id in durable_ids
+    assert scratch_id in scratch_ids
+    assert durable_id not in scratch_ids
+    assert scratch_id not in durable_ids
+
+
+async def test_build_context_scratch_limit_zero_skips_scratch(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    await db.store("durable Python")
+    await db.store("scratch Python", tier="scratch", expires_at=future)
+
+    ctx = await db.build_context("Python", scratch_limit=0, weights=ScoringWeights())
+    assert ctx.scratch == []
+    assert len(ctx.memories) >= 1
+
+
+async def test_build_context_per_tier_budgets_independent(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    for i in range(3):
+        await db.store(f"durable Python note {i}")
+    for i in range(3):
+        await db.store(f"scratch Python note {i}", tier="scratch", expires_at=future)
+
+    ctx = await db.build_context("Python note", limit=2, scratch_limit=2, weights=ScoringWeights())
+    assert len(ctx.memories) <= 2
+    assert len(ctx.scratch) <= 2
+    assert all(m.tier == "durable" for m in ctx.memories)
+    assert all(m.tier == "scratch" for m in ctx.scratch)
+
+
+async def test_search_filters_by_tier(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    durable_id = await db.store("Python durable")
+    scratch_id = await db.store("Python scratch", tier="scratch", expires_at=future)
+
+    durable_only = await db.search("Python", tier="durable", weights=ScoringWeights())
+    scratch_only = await db.search("Python", tier="scratch", weights=ScoringWeights())
+
+    assert durable_id in {m.id for m in durable_only}
+    assert scratch_id not in {m.id for m in durable_only}
+    assert scratch_id in {m.id for m in scratch_only}
+    assert durable_id not in {m.id for m in scratch_only}

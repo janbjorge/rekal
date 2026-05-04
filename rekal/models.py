@@ -72,6 +72,7 @@ class ConversationLink(BaseModel):
 class ContextResult(BaseModel):
     query: str
     memories: list[MemoryResult]
+    scratch: list[MemoryResult] = Field(default_factory=list)
     conflicts: list[ConflictInfo]
     timeline_summary: str
 

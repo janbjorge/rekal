@@ -50,3 +50,24 @@ async def test_memory_build_context_tool_custom_weights(db: SqliteDatabase) -> N
     )
     assert "query" in result
     assert "memories" in result
+
+
+async def test_memory_build_context_tool_returns_scratch(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    await db.store("durable Go note")
+    await db.store("scratch Go note", tier="scratch", expires_at=future)
+
+    result = await memory_build_context(_ctx(db), "Go")
+    assert "scratch" in result
+    assert isinstance(result["scratch"], list)
+    assert len(result["scratch"]) >= 1
+    assert all(m["tier"] == "scratch" for m in result["scratch"])
+    assert all(m["tier"] == "durable" for m in result["memories"])
+
+
+async def test_memory_build_context_tool_scratch_limit_zero(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    await db.store("scratch only", tier="scratch", expires_at=future)
+
+    result = await memory_build_context(_ctx(db), "scratch", scratch_limit=0)
+    assert result["scratch"] == []
