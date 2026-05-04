@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 MemoryType = Literal["fact", "preference", "procedure", "context", "episode"]
+MemoryTier = Literal["durable", "scratch"]
 ConversationRelation = Literal["follows_up_on", "branches_from", "contradicts", "merges"]
 MemoryRelation = Literal["supersedes", "contradicts", "related_to"]
 
@@ -15,11 +16,13 @@ class MemoryResult(BaseModel):
     id: str
     content: str
     memory_type: MemoryType
+    tier: MemoryTier = "durable"
     project: str | None = None
     conversation_id: str | None = None
     tags: list[str] = Field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    expires_at: str | None = None
     access_count: int = 0
     last_accessed_at: str | None = None
     score: float | None = None

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     import sqlite3
 
     from rekal.embeddings import EmbeddingFunc
-    from rekal.models import MemoryRelation, MemoryType
+    from rekal.models import MemoryRelation, MemoryTier, MemoryType
 
 # SQLite parameter types — the union of all types sqlite3 accepts as bind values.
 SqlParam = str | int | float | bytes | None
@@ -56,14 +56,22 @@ CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
     content TEXT NOT NULL,
     memory_type TEXT NOT NULL DEFAULT 'fact',
+    tier TEXT NOT NULL DEFAULT 'durable' CHECK (tier IN ('durable', 'scratch')),
     project TEXT,
     conversation_id TEXT REFERENCES conversations(id),
     tags TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT,
     access_count INTEGER NOT NULL DEFAULT 0,
     last_accessed_at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_memories_tier_expires
+    ON memories(tier, expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_memories_conv_tier
+    ON memories(conversation_id, tier);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
     content,
@@ -111,6 +119,23 @@ VEC_TABLE_SQL = (
     "id TEXT PRIMARY KEY, embedding float[%d])"
 )
 
+async def migrate_memories_table(db: aiosqlite.Connection) -> None:
+    """Add tier/expires_at columns to memories on existing DBs.
+
+    Idempotent: checks PRAGMA table_info before each ADD COLUMN. New DBs
+    get the columns from SCHEMA directly; this only fires on pre-tier DBs.
+    """
+    cols: set[str] = set()
+    async with db.execute("PRAGMA table_info(memories)") as cursor:
+        async for row in cursor:
+            cols.add(row[1])
+    if "tier" not in cols:
+        await db.execute(
+            "ALTER TABLE memories ADD COLUMN tier TEXT NOT NULL DEFAULT 'durable'"
+        )
+    if "expires_at" not in cols:
+        await db.execute("ALTER TABLE memories ADD COLUMN expires_at TEXT")
+
 
 def quote_fts(query: str) -> str:
     """Wrap each token in FTS5 phrase quotes so the query is always treated as literal text."""
@@ -140,11 +165,13 @@ def row_to_memory(row: aiosqlite.Row, score: float | None = None) -> MemoryResul
         id=row["id"],
         content=row["content"],
         memory_type=row["memory_type"],
+        tier=row["tier"],
         project=row["project"],
         conversation_id=row["conversation_id"],
         tags=parse_tags(row["tags"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        expires_at=row["expires_at"],
         access_count=row["access_count"],
         last_accessed_at=row["last_accessed_at"],
         score=score,
@@ -184,6 +211,7 @@ class SqliteDatabase:
         await db._execute(load_vec, db._conn)  # type: ignore[arg-type]
         await db.executescript(SCHEMA)
         await db.execute(VEC_TABLE_SQL % dimensions)
+        await migrate_memories_table(db)
         await db.commit()
         return SqliteDatabase(db=db, embed=embed)
 
@@ -294,9 +322,11 @@ class SqliteDatabase:
         content: str,
         *,
         memory_type: MemoryType = "fact",
+        tier: MemoryTier = "durable",
         project: str | None = None,
         conversation_id: str | None = None,
         tags: list[str] | None = None,
+        expires_at: str | None = None,
     ) -> str:
         memory_id = new_id()
         ts = now_utc()
@@ -306,10 +336,22 @@ class SqliteDatabase:
         await self.db.execute(
             """
             INSERT INTO memories
-                (id, content, memory_type, project, conversation_id, tags, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, content, memory_type, tier, project, conversation_id, tags,
+                 created_at, updated_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (memory_id, content, memory_type, project, conversation_id, tags_json, ts, ts),
+            (
+                memory_id,
+                content,
+                memory_type,
+                tier,
+                project,
+                conversation_id,
+                tags_json,
+                ts,
+                ts,
+                expires_at,
+            ),
         )
         await self.db.execute(
             "INSERT INTO memory_vec (id, embedding) VALUES (?, ?)",
@@ -370,10 +412,13 @@ class SqliteDatabase:
             return []
 
         scored: list[tuple[float, MemoryResult]] = []
+        now = now_utc()
         for cid in candidate_ids:
             mem = await self.get(cid)
             if mem is None:
                 continue  # pragma: no cover
+            if mem.expires_at is not None and mem.expires_at <= now:
+                continue
             if project is not None and mem.project != project:
                 continue
             if memory_type is not None and mem.memory_type != memory_type:
@@ -554,6 +599,7 @@ class SqliteDatabase:
             embedding = row["embedding"]
 
         results: list[MemoryResult] = []
+        now = now_utc()
         async with self.db.execute(
             """
             SELECT id, distance
@@ -567,9 +613,12 @@ class SqliteDatabase:
                 if row["id"] == memory_id:
                     continue
                 mem = await self.get(row["id"])
-                if mem is not None:
-                    mem.score = 1.0 - row["distance"]
-                    results.append(mem)
+                if mem is None:
+                    continue
+                if mem.expires_at is not None and mem.expires_at <= now:
+                    continue
+                mem.score = 1.0 - row["distance"]
+                results.append(mem)
         return results[:limit]
 
     async def memory_topics(self, *, project: str | None = None) -> list[TopicSummary]:
@@ -577,8 +626,9 @@ class SqliteDatabase:
         async with self.db.execute(
             """
             SELECT memory_type AS topic, COUNT(*) AS cnt, MAX(created_at) AS latest
-            FROM memories
+            FROM memories m
             WHERE (? IS NULL OR project = ?)
+              AND (m.expires_at IS NULL OR m.expires_at > datetime('now'))
             GROUP BY memory_type
             ORDER BY cnt DESC
             """,
@@ -601,10 +651,11 @@ class SqliteDatabase:
         results: list[MemoryResult] = []
         async with self.db.execute(
             """
-            SELECT * FROM memories
+            SELECT * FROM memories m
             WHERE (? IS NULL OR project = ?)
               AND (? IS NULL OR created_at >= ?)
               AND (? IS NULL OR created_at <= ?)
+              AND (m.expires_at IS NULL OR m.expires_at > datetime('now'))
             ORDER BY created_at DESC
             LIMIT ?
             """,
@@ -757,18 +808,21 @@ class SqliteDatabase:
         await self.db.execute(
             """
             INSERT INTO memories
-                (id, content, memory_type, project, conversation_id, tags, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, content, memory_type, tier, project, conversation_id, tags,
+                 created_at, updated_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 new_id_val,
                 new_content,
                 memory_type or old.memory_type,
+                old.tier,
                 project or old.project,
                 conversation_id or old.conversation_id,
                 tags_json,
                 ts,
                 ts,
+                old.expires_at,
             ),
         )
         await self.db.execute(
