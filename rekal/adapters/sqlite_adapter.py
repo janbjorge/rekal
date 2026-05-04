@@ -68,9 +68,6 @@ CREATE TABLE IF NOT EXISTS memories (
     CHECK (tier = 'durable' OR expires_at IS NOT NULL)
 );
 
-CREATE INDEX IF NOT EXISTS idx_memories_expires_tier
-    ON memories(expires_at, tier);
-
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
     content,
     tags,
@@ -141,12 +138,19 @@ async def migrate_memories_table(db: aiosqlite.Connection) -> None:
     if "expires_at" not in cols:
         await db.execute("ALTER TABLE memories ADD COLUMN expires_at TEXT")
 
-    # Drop obsolete indexes from earlier scratch-tier work. Replaced by
-    # idx_memories_expires_tier (created via SCHEMA above). The old
+    # Drop obsolete indexes from earlier scratch-tier work. The old
     # (tier, expires_at) leading column made it useless for sweep, and
     # (conversation_id, tier) was never used by any query.
     await db.execute("DROP INDEX IF EXISTS idx_memories_tier_expires")
     await db.execute("DROP INDEX IF EXISTS idx_memories_conv_tier")
+
+    # Create the sweep index after ensuring the columns exist. Cannot live
+    # in SCHEMA because executescript runs before this migration, so on
+    # pre-tier DBs the columns don't exist yet when SCHEMA executes.
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memories_expires_tier "
+        "ON memories(expires_at, tier)"
+    )
 
 
 def quote_fts(query: str) -> str:
