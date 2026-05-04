@@ -41,9 +41,8 @@ erDiagram
     conversations ||--o{ memories : "scopes"
     conversations ||--o{ conversation_links : "from_id / to_id"
     memories ||--o{ memory_links : "from_id / to_id"
-    memories ||--|| memory_vec : "1:1 by id"
+    memories ||--|| memory_vec : "1:1 by id (superseded rows kept)"
     memories ||--|| memories_fts : "1:1 by rowid (trigger-synced)"
-    project_config }o--|| memories : "project name"
 
     conversations {
         TEXT id PK
@@ -139,30 +138,43 @@ CREATE TABLE IF NOT EXISTS memories (
 **Indexes**
 
 ```sql
-CREATE INDEX idx_memories_tier_expires ON memories(tier, expires_at);
-CREATE INDEX idx_memories_conv_tier    ON memories(conversation_id, tier);
+CREATE INDEX idx_memories_expires_tier ON memories(expires_at, tier);
 ```
 
-- `idx_memories_tier_expires` — speeds up sweep + tier-filtered queries.
-- `idx_memories_conv_tier` — conversation-scoped tier reads (build_context per conversation).
+- `idx_memories_expires_tier` — leftmost column is `expires_at` so
+  `sweep_expired` (filters on `expires_at` only) can use it. The
+  trailing `tier` column is reserved for future SQL-level tier filtering.
+
+**Constraints**
+
+The table-level CHECK ``CHECK (tier = 'durable' OR expires_at IS NOT NULL)``
+forbids the immortal-scratch state on rows inserted into newly created
+DBs. Because SQLite has no ``ALTER TABLE … ADD CHECK``, DBs migrated
+from the pre-CHECK schema are *not* retro-fitted — see
+[Migrations](#migrations). The Python layer (`memory_store_scratch`)
+enforces the same invariant on writes regardless.
 
 **Tier semantics**
 
-| Tier | Default | TTL | Visible to |
+| Tier | Default | `expires_at` | Visible to |
 |---|---|---|---|
-| `durable` | yes | none | search, timeline, topics, build_context.memories |
-| `scratch` | only via `memory_store_scratch` | required (`expires_at`) | same — but expired rows hidden by lazy filter, hard-deleted by `sweep_expired` |
+| `durable` | yes | NULL (always) | search, timeline, topics, build_context.memories |
+| `scratch` | only via `memory_store_scratch` | required by CHECK on fresh DBs; required by Python on all DBs | same — but expired rows hidden by lazy filter, hard-deleted by `sweep_expired` |
 
 The two axes — `memory_type` (semantic) and `tier` (lifecycle) — are
 intentionally orthogonal. A `scratch` row can be any `memory_type`. A
 `durable` row never has `expires_at`.
 
-**Visibility filter** (applied to `search`, `memory_similar`,
-`memory_timeline`, `memory_topics`, `build_context`):
+**Visibility filter** — `(expires_at IS NULL OR expires_at > datetime('now'))`.
+Applied two different ways depending on the call site:
 
-```sql
-(expires_at IS NULL OR expires_at > datetime('now'))
-```
+- **In SQL** for `memory_timeline` and `memory_topics` — predicate sits
+  in the `WHERE` clause directly.
+- **In Python** for `db.search` and `db.memory_similar` — vec/fts
+  return candidate IDs first (over-fetched at `limit * 3`), then
+  `db.get(id)` resolves the row and Python drops expired hits before
+  scoring. `build_context` inherits the Python path because it calls
+  `db.search` internally.
 
 Raw access (`get`, `memory_health`, `memory_conflicts`,
 `memory_related`, `prune`) deliberately keeps expired rows visible.
@@ -358,7 +370,9 @@ explicit in Python:
 - `db.delete`, `db.prune`, `db.sweep_expired` — `DELETE FROM
   memory_vec` before deleting from `memories`.
 - `db.supersede` — inserts new row; old row's vector stays (it's
-  filtered out at query time, not deleted).
+  filtered out at query time, not deleted). Vec table grows
+  monotonically per supersede chain — only `db.delete` / `db.prune` /
+  `db.sweep_expired` ever shrink it.
 
 This is the most failure-prone seam in the schema. Any new method that
 inserts into `memories` must also insert into `memory_vec`, and any
@@ -422,13 +436,26 @@ There is no migration framework. Two strategies coexist:
    `CREATE TRIGGER` is `IF NOT EXISTS`. Running the schema on an
    existing DB is a no-op.
 
-2. **`migrate_memories_table`** — for new columns on the existing
-   `memories` table. Reads `PRAGMA table_info(memories)` and runs
-   `ALTER TABLE … ADD COLUMN` for any missing columns. Idempotent.
-   Currently handles `tier` and `expires_at` (added in Apr 2026).
+2. **`migrate_memories_table`** — for additive ALTERs on the existing
+   `memories` table and for one-shot index renames. Reads
+   `PRAGMA table_info(memories)` to add missing columns and uses
+   `DROP INDEX IF EXISTS` to remove obsolete indexes. Idempotent.
+   Currently handles:
+   - `tier` and `expires_at` columns (added Apr 2026 with the scratch
+     tier).
+   - Drop of `idx_memories_tier_expires` and `idx_memories_conv_tier`
+     (May 2026 cleanup; replaced by `idx_memories_expires_tier`).
 
 Both run unconditionally inside `SqliteDatabase.create`. Cost on a
-migrated DB is one PRAGMA + zero ALTERs.
+migrated DB is one PRAGMA + zero ALTERs + two no-op DROP INDEXes.
+
+**Known limitation: no `ALTER TABLE … ADD CHECK`.** SQLite cannot add
+a CHECK constraint to an existing table without a full rebuild
+(create-new + copy + drop + rename). The current schema includes
+`CHECK (tier = 'durable' OR expires_at IS NOT NULL)` for fresh DBs;
+DBs migrated from earlier schemas do not have the constraint at the
+SQL layer. The Python write paths (`memory_store_scratch`) enforce
+the same invariant on every DB regardless.
 
 If we ever need real schema versioning, `PRAGMA user_version` is the
 escape hatch.
@@ -453,21 +480,23 @@ escape hatch.
 3. `memories_fts MATCH` → `{id: rank}`, exclude superseded.
 4. Union candidate IDs.
 5. For each, `db.get(id)` and Python-filter on
-   `expires_at`, `project`, `memory_type`, `tier` (PR-pending),
-   `conversation_id`.
+   `expires_at`, `project`, `memory_type`, `tier`, `conversation_id`.
 6. Score = `combine_scores(fts, vec, recency, weights)`.
 7. Bump `access_count` + `last_accessed_at`.
 8. Sort by score desc, slice to `limit`.
 
 ### `db.build_context(query, ...)`
 
-(Today: one search. After PR4: two searches per tier with separate
-budgets, returns `memories` + `scratch`.)
+Two filtered searches with independent budgets so the durable tier
+cannot crowd out scratch and vice versa:
 
-1. `db.search(...)` for memories.
-2. `db.memory_conflicts(project=...)` for any contradictions.
-3. Compute timeline summary from min/max `created_at` of returned
-   rows.
+1. `db.search(query, tier='durable', limit=limit, ...)`.
+2. `db.search(query, tier='scratch', limit=scratch_limit, ...)` —
+   skipped when `scratch_limit == 0`.
+3. `db.memory_conflicts(project=...)` for any contradictions.
+4. Timeline summary from min/max `created_at` across both lists.
+5. Returns `ContextResult{memories: durable, scratch, conflicts,
+   timeline_summary}`.
 
 ### `db.supersede(old_id, new_content, ...)`
 
@@ -502,7 +531,7 @@ containing `id`.
 |---|---|
 | `memory_type ∈ {fact, preference, procedure, context, episode}` | `MemoryType` Literal in `models.py`, validated by Pydantic at MCP boundary. |
 | `tier ∈ {durable, scratch}` | DB CHECK + `MemoryTier` Literal. Belt-and-braces. |
-| Scratch memories have non-NULL `expires_at` | Convention in `memory_store_scratch`. **Not DB-enforced.** Manually inserting a scratch row with NULL `expires_at` would create an immortal "scratch" row. |
+| Scratch memories have non-NULL `expires_at` | Enforced by `CHECK (tier='durable' OR expires_at IS NOT NULL)` on fresh DBs. DBs migrated from pre-CHECK schemas rely on `memory_store_scratch` writing `expires_at` unconditionally — see [Migrations](#migrations). |
 | Tags are JSON-encoded `list[str]` | `db.store` / `db.update` JSON-encode; `parse_tags` decodes. Bad JSON falls back to `[]`. |
 | Vector dim matches `memory_vec` declaration | `FastEmbedder.dimensions` passed to `SqliteDatabase.create`. Mismatch → vec0 raises at insert. |
 | Timestamps are `'YYYY-MM-DD HH:MM:SS'` UTC strings | `now_utc()`. Compared lexicographically — works because format is fixed-width. |
@@ -517,11 +546,23 @@ containing `id`.
 - **No DB-level CHECK on `memory_type`** — relies on Pydantic at the
   edge.
 - **`conversations.metadata` is unused** — placeholder for future use.
-- **Scratch rows can be created without `expires_at`** if a caller
-  goes around `memory_store_scratch`. They'd be immortal scratch.
+  Pick a use or drop the column on a follow-up migration; carrying
+  it forever is the worst of both.
+- **Pre-CHECK DBs accept immortal scratch** — DBs created before the
+  table-level CHECK landed do not enforce the
+  `(tier='scratch' → expires_at IS NOT NULL)` invariant at the SQL
+  layer. `memory_store_scratch` enforces it on writes regardless.
 - **No `ON DELETE CASCADE`** — every cascading delete is hand-written.
 - **`memory_vec` has no trigger** — every memory mutation must
   remember to update the vec table. Bug-prone.
+- **Supersede grows `memory_vec` monotonically** — old vector rows
+  are left behind so the supersede-exclusion subquery can find them
+  via `memory_links`. A long supersede chain accumulates dead
+  vectors until the chain root is `delete`d or `prune`d.
+- **`memory_links.relation` has no index** — every vec/fts search runs
+  `id NOT IN (SELECT to_id FROM memory_links WHERE relation='supersedes')`
+  as a correlated subquery. Fine while link counts are small; revisit
+  when supersede chains get deep or `related_to` grows.
 - **No schema version** — we rely on `IF NOT EXISTS` + idempotent
   ALTER. Works today; a real migration framework
   (`PRAGMA user_version` + a runner) would scale better.
