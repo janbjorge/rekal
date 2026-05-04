@@ -229,3 +229,140 @@ async def test_prune_combined_filters(db: SqliteDatabase) -> None:
     assert await db.get(a) is None
     assert await db.get(b) is not None
     assert await db.get(c) is not None
+
+
+# ── Tier + expiry ───────────────────────────────────────────────────
+
+
+async def test_store_defaults_to_durable_tier(db: SqliteDatabase) -> None:
+    mid = await db.store("durable by default")
+    mem = await db.get(mid)
+    assert mem is not None
+    assert mem.tier == "durable"
+    assert mem.expires_at is None
+
+
+async def test_store_scratch_tier_with_expiry(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    mid = await db.store("scratch note", tier="scratch", expires_at=future)
+    mem = await db.get(mid)
+    assert mem is not None
+    assert mem.tier == "scratch"
+    assert mem.expires_at == future
+
+
+async def test_search_excludes_expired(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    future = "2999-12-31 23:59:59"
+    fresh = await db.store("fresh scratch note", tier="scratch", expires_at=future)
+    await db.store("stale scratch note", tier="scratch", expires_at=past)
+
+    weights = await db.resolve_weights(None)
+    results = await db.search("scratch note", weights=weights)
+    ids = [m.id for m in results]
+    assert fresh in ids
+    assert all(m.expires_at != past for m in results)
+
+
+async def test_timeline_excludes_expired(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    fresh = await db.store("kept", project="t")
+    await db.store("expired", project="t", tier="scratch", expires_at=past)
+
+    rows = await db.memory_timeline(project="t")
+    ids = [m.id for m in rows]
+    assert fresh in ids
+    assert len(ids) == 1
+
+
+async def test_topics_excludes_expired(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    await db.store("kept", project="t", memory_type="fact")
+    await db.store("expired", project="t", memory_type="fact", tier="scratch", expires_at=past)
+
+    topics = await db.memory_topics(project="t")
+    fact_topic = next(t for t in topics if t.topic == "fact")
+    assert fact_topic.count == 1
+
+
+async def test_similar_excludes_expired(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    anchor = await db.store("alpha beta gamma")
+    fresh = await db.store("alpha beta delta")
+    await db.store("alpha beta omega", tier="scratch", expires_at=past)
+
+    results = await db.memory_similar(anchor, limit=5)
+    ids = {m.id for m in results}
+    assert fresh in ids
+    assert all(m.expires_at != past for m in results)
+
+
+async def test_get_returns_expired(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    mid = await db.store("expired", tier="scratch", expires_at=past)
+    mem = await db.get(mid)
+    assert mem is not None
+    assert mem.expires_at == past
+
+
+async def test_supersede_preserves_tier_and_expiry(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    old = await db.store("v1", tier="scratch", expires_at=future)
+    new = await db.supersede(old, "v2")
+    mem = await db.get(new)
+    assert mem is not None
+    assert mem.tier == "scratch"
+    assert mem.expires_at == future
+
+
+async def test_migration_adds_columns_to_legacy_table() -> None:
+    """ALTER TABLE path: a pre-tier memories table gets tier+expires_at."""
+    import aiosqlite
+
+    from rekal.adapters.sqlite_adapter import migrate_memories_table
+
+    raw = await aiosqlite.connect(":memory:")
+    raw.row_factory = aiosqlite.Row
+    try:
+        await raw.executescript(
+            """
+            CREATE TABLE memories (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                memory_type TEXT NOT NULL DEFAULT 'fact',
+                project TEXT,
+                conversation_id TEXT,
+                tags TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                access_count INTEGER NOT NULL DEFAULT 0,
+                last_accessed_at TEXT
+            );
+            """
+        )
+        await raw.execute("INSERT INTO memories (id, content) VALUES ('legacy1', 'legacy row')")
+        await raw.commit()
+
+        await migrate_memories_table(raw)
+        await raw.commit()
+
+        cols: set[str] = set()
+        async with raw.execute("PRAGMA table_info(memories)") as cursor:
+            async for row in cursor:
+                cols.add(row[1])
+        assert "tier" in cols
+        assert "expires_at" in cols
+
+        async with raw.execute(
+            "SELECT tier, expires_at FROM memories WHERE id = 'legacy1'"
+        ) as cursor:
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row["tier"] == "durable"
+            assert row["expires_at"] is None
+
+        # Idempotent: a second run is a no-op.
+        await migrate_memories_table(raw)
+        await raw.commit()
+    finally:
+        await raw.close()
