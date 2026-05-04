@@ -164,6 +164,20 @@ async def test_memory_prune_tool_no_matches(db: SqliteDatabase) -> None:
     assert "Deleted 0" in result
 
 
+async def test_memory_search_filters_by_tier(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    await db.store("durable Java note")
+    await db.store("scratch Java note", tier="scratch", expires_at=future)
+
+    durable_only = await memory_search(_ctx(db), "Java", tier="durable")
+    scratch_only = await memory_search(_ctx(db), "Java", tier="scratch")
+
+    assert all(m["tier"] == "durable" for m in durable_only)
+    assert all(m["tier"] == "scratch" for m in scratch_only)
+    assert len(durable_only) >= 1
+    assert len(scratch_only) >= 1
+
+
 async def test_memory_store_scratch_tool(db: SqliteDatabase) -> None:
     conv = await db.conversation_start(title="scratch test")
     result = await memory_store_scratch(_ctx(db), "wip note", conv)
