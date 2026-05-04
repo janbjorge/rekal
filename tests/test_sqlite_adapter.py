@@ -252,8 +252,6 @@ async def test_store_scratch_tier_with_expiry(db: SqliteDatabase) -> None:
 
 
 async def test_search_excludes_expired(db: SqliteDatabase) -> None:
-    from rekal.scoring import ScoringWeights
-
     past = "2000-01-01 00:00:00"
     future = "2999-12-31 23:59:59"
     fresh = await db.store("fresh scratch note", tier="scratch", expires_at=future)
@@ -286,6 +284,18 @@ async def test_topics_excludes_expired(db: SqliteDatabase) -> None:
     topics = await db.memory_topics(project="t")
     fact_topic = next(t for t in topics if t.topic == "fact")
     assert fact_topic.count == 1
+
+
+async def test_similar_excludes_expired(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    anchor = await db.store("alpha beta gamma")
+    fresh = await db.store("alpha beta delta")
+    await db.store("alpha beta omega", tier="scratch", expires_at=past)
+
+    results = await db.memory_similar(anchor, limit=5)
+    ids = {m.id for m in results}
+    assert fresh in ids
+    assert all(m.expires_at != past for m in results)
 
 
 async def test_get_returns_expired(db: SqliteDatabase) -> None:

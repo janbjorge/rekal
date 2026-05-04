@@ -614,7 +614,7 @@ class SqliteDatabase:
                     continue
                 mem = await self.get(row["id"])
                 if mem is None:
-                    continue
+                    continue  # pragma: no cover
                 if mem.expires_at is not None and mem.expires_at <= now:
                     continue
                 mem.score = 1.0 - row["distance"]
