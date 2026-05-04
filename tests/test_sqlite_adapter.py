@@ -419,3 +419,64 @@ async def test_migration_adds_columns_to_legacy_table() -> None:
         await raw.commit()
     finally:
         await raw.close()
+
+
+async def test_migration_drops_obsolete_indexes() -> None:
+    """Migration removes idx_memories_tier_expires + idx_memories_conv_tier."""
+    import aiosqlite
+
+    from rekal.adapters.sqlite_adapter import migrate_memories_table
+
+    raw = await aiosqlite.connect(":memory:")
+    raw.row_factory = aiosqlite.Row
+    try:
+        await raw.executescript(
+            """
+            CREATE TABLE memories (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                tier TEXT NOT NULL DEFAULT 'durable',
+                conversation_id TEXT,
+                expires_at TEXT
+            );
+            CREATE INDEX idx_memories_tier_expires ON memories(tier, expires_at);
+            CREATE INDEX idx_memories_conv_tier ON memories(conversation_id, tier);
+            """
+        )
+        await raw.commit()
+
+        await migrate_memories_table(raw)
+        await raw.commit()
+
+        names: set[str] = set()
+        async with raw.execute("SELECT name FROM sqlite_master WHERE type = 'index'") as cursor:
+            async for row in cursor:
+                names.add(row["name"])
+        assert "idx_memories_tier_expires" not in names
+        assert "idx_memories_conv_tier" not in names
+    finally:
+        await raw.close()
+
+
+async def test_fresh_db_has_expires_tier_index(db: SqliteDatabase) -> None:
+    names: set[str] = set()
+    async with db.db.execute("SELECT name FROM sqlite_master WHERE type = 'index'") as cursor:
+        async for row in cursor:
+            names.add(row["name"])
+    assert "idx_memories_expires_tier" in names
+    assert "idx_memories_tier_expires" not in names
+    assert "idx_memories_conv_tier" not in names
+
+
+async def test_scratch_without_expiry_rejected_on_fresh_db(db: SqliteDatabase) -> None:
+    """The table-level CHECK forbids tier='scratch' AND expires_at IS NULL."""
+    import aiosqlite
+
+    with pytest.raises(aiosqlite.IntegrityError):
+        await db.db.execute(
+            """
+            INSERT INTO memories (id, content, tier, expires_at)
+            VALUES ('bad', 'no expiry', 'scratch', NULL)
+            """
+        )
+        await db.db.commit()
