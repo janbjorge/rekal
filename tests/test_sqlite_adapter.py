@@ -305,6 +305,59 @@ async def test_get_returns_expired(db: SqliteDatabase) -> None:
     assert mem.expires_at == past
 
 
+async def test_sweep_expired_no_op_on_empty(db: SqliteDatabase) -> None:
+    deleted = await db.sweep_expired()
+    assert deleted == 0
+
+
+async def test_sweep_expired_keeps_durable(db: SqliteDatabase) -> None:
+    durable = await db.store("keep me")
+    deleted = await db.sweep_expired()
+    assert deleted == 0
+    assert await db.get(durable) is not None
+
+
+async def test_sweep_expired_keeps_future_scratch(db: SqliteDatabase) -> None:
+    future = "2999-12-31 23:59:59"
+    fresh = await db.store("fresh", tier="scratch", expires_at=future)
+    deleted = await db.sweep_expired()
+    assert deleted == 0
+    assert await db.get(fresh) is not None
+
+
+async def test_sweep_expired_drops_past_scratch(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    stale = await db.store("stale", tier="scratch", expires_at=past)
+    durable = await db.store("kept")
+
+    deleted = await db.sweep_expired()
+    assert deleted == 1
+    assert await db.get(stale) is None
+    assert await db.get(durable) is not None
+
+
+async def test_sweep_expired_cascades_links(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    stale = await db.store("stale", tier="scratch", expires_at=past)
+    other = await db.store("other")
+    await db.add_memory_link(stale, other, "related_to")
+    await db.add_memory_link(other, stale, "related_to")
+
+    await db.sweep_expired()
+    related = await db.memory_related(other)
+    assert related == []
+
+
+async def test_sweep_expired_cascades_vec(db: SqliteDatabase) -> None:
+    past = "2000-01-01 00:00:00"
+    stale = await db.store("stale", tier="scratch", expires_at=past)
+
+    await db.sweep_expired()
+    async with db.db.execute("SELECT id FROM memory_vec WHERE id = ?", (stale,)) as cursor:
+        row = await cursor.fetchone()
+        assert row is None
+
+
 async def test_supersede_preserves_tier_and_expiry(db: SqliteDatabase) -> None:
     future = "2999-12-31 23:59:59"
     old = await db.store("v1", tier="scratch", expires_at=future)

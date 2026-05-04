@@ -451,6 +451,54 @@ class SqliteDatabase:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [mem for _, mem in scored[:limit]]
 
+    async def sweep_expired(self) -> int:
+        """Hard-delete memories whose expires_at has passed.
+
+        Lazy filters keep expired rows invisible from search/timeline/topics,
+        so this is purely a space optimization. Safe to call on every startup.
+        Returns the number of rows deleted (FTS + vec + links cascade in step).
+        """
+        ids: list[str] = []
+        async with self.db.execute(
+            """
+            SELECT id FROM memories
+            WHERE expires_at IS NOT NULL AND expires_at <= datetime('now')
+            """
+        ) as cursor:
+            async for row in cursor:
+                ids.append(row["id"])
+
+        if not ids:
+            return 0
+
+        await self.db.execute(
+            """
+            DELETE FROM memory_vec WHERE id IN (
+                SELECT id FROM memories
+                WHERE expires_at IS NOT NULL AND expires_at <= datetime('now')
+            )
+            """
+        )
+        await self.db.execute(
+            """
+            DELETE FROM memory_links WHERE from_id IN (
+                SELECT id FROM memories
+                WHERE expires_at IS NOT NULL AND expires_at <= datetime('now')
+            ) OR to_id IN (
+                SELECT id FROM memories
+                WHERE expires_at IS NOT NULL AND expires_at <= datetime('now')
+            )
+            """
+        )
+        await self.db.execute(
+            """
+            DELETE FROM memories
+            WHERE expires_at IS NOT NULL AND expires_at <= datetime('now')
+            """
+        )
+        await self.db.commit()
+        return len(ids)
+
     async def delete(self, memory_id: str) -> bool:
         await self.db.execute("DELETE FROM memory_vec WHERE id = ?", (memory_id,))
         await self.db.execute(
