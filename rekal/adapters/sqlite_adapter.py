@@ -64,14 +64,12 @@ CREATE TABLE IF NOT EXISTS memories (
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT,
     access_count INTEGER NOT NULL DEFAULT 0,
-    last_accessed_at TEXT
+    last_accessed_at TEXT,
+    CHECK (tier = 'durable' OR expires_at IS NOT NULL)
 );
 
-CREATE INDEX IF NOT EXISTS idx_memories_tier_expires
-    ON memories(tier, expires_at);
-
-CREATE INDEX IF NOT EXISTS idx_memories_conv_tier
-    ON memories(conversation_id, tier);
+CREATE INDEX IF NOT EXISTS idx_memories_expires_tier
+    ON memories(expires_at, tier);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
     content,
@@ -121,10 +119,18 @@ VEC_TABLE_SQL = (
 
 
 async def migrate_memories_table(db: aiosqlite.Connection) -> None:
-    """Add tier/expires_at columns to memories on existing DBs.
+    """Add tier/expires_at columns + drop superseded indexes on existing DBs.
 
-    Idempotent: checks PRAGMA table_info before each ADD COLUMN. New DBs
-    get the columns from SCHEMA directly; this only fires on pre-tier DBs.
+    Idempotent: checks PRAGMA table_info before each ADD COLUMN, and uses
+    DROP INDEX IF EXISTS for index cleanup. New DBs get the final shape
+    directly from SCHEMA; this only fires on pre-tier DBs and one-shot
+    index renames.
+
+    Note: the table-level CHECK ``tier='durable' OR expires_at IS NOT NULL``
+    only applies to DBs created after the constraint landed. SQLite has
+    no ``ALTER TABLE … ADD CHECK`` — backporting requires a full
+    table-rebuild we have not implemented. The Python layer
+    (``memory_store_scratch``) enforces the same invariant on writes.
     """
     cols: set[str] = set()
     async with db.execute("PRAGMA table_info(memories)") as cursor:
@@ -134,6 +140,13 @@ async def migrate_memories_table(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE memories ADD COLUMN tier TEXT NOT NULL DEFAULT 'durable'")
     if "expires_at" not in cols:
         await db.execute("ALTER TABLE memories ADD COLUMN expires_at TEXT")
+
+    # Drop obsolete indexes from earlier scratch-tier work. Replaced by
+    # idx_memories_expires_tier (created via SCHEMA above). The old
+    # (tier, expires_at) leading column made it useless for sweep, and
+    # (conversation_id, tier) was never used by any query.
+    await db.execute("DROP INDEX IF EXISTS idx_memories_tier_expires")
+    await db.execute("DROP INDEX IF EXISTS idx_memories_conv_tier")
 
 
 def quote_fts(query: str) -> str:
