@@ -58,6 +58,37 @@ async def run_export(db_path: str) -> None:
         await db.close()
 
 
+async def run_scratch_capture(
+    db_path: str,
+    *,
+    content: str,
+    project: str | None,
+    tags: list[str] | None,
+    ttl_hours: float,
+) -> None:
+    """Store a scratch-tier memory with a TTL. Prints ``{"id": "..."}``.
+
+    Used by the PreCompact hook to snapshot session state before compaction.
+    """
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    embed = FastEmbedder()
+    db = await SqliteDatabase.create(db_path, embed, dimensions=embed.dimensions)
+    try:
+        expiry_dt = datetime.now(UTC) + timedelta(hours=ttl_hours)
+        expires_at = expiry_dt.strftime("%Y-%m-%d %H:%M:%S")
+        memory_id = await db.store(
+            content,
+            memory_type="context",
+            tier="scratch",
+            project=project,
+            tags=tags,
+            expires_at=expires_at,
+        )
+        print(json.dumps({"id": memory_id, "expires_at": expires_at}))
+    finally:
+        await db.close()
+
+
 async def run_prune(
     db_path: str,
     *,
@@ -130,6 +161,28 @@ def main() -> None:
     sub.add_parser("health", help="Show database health report")
     sub.add_parser("export", help="Export all memories as JSON")
 
+    scratch = sub.add_parser(
+        "scratch-capture",
+        help="Store a scratch-tier memory with TTL (used by PreCompact hook)",
+    )
+    scratch.add_argument(
+        "--content",
+        help="Memory content. If omitted, reads from stdin.",
+    )
+    scratch.add_argument("--project", help="Project scope")
+    scratch.add_argument(
+        "--tag",
+        action="append",
+        dest="tags",
+        help="Tag (repeatable)",
+    )
+    scratch.add_argument(
+        "--ttl-hours",
+        type=float,
+        default=168.0,
+        help="Hours until expiry. Default 168 (7 days).",
+    )
+
     prune = sub.add_parser("prune", help="Bulk-delete memories by scope (project/type/age)")
     prune.add_argument("--project", help="Restrict to this project")
     prune.add_argument(
@@ -161,6 +214,17 @@ def main() -> None:
         asyncio.run(run_health(get_db_path(args)))
     elif command == "export":
         asyncio.run(run_export(get_db_path(args)))
+    elif command == "scratch-capture":
+        content = args.content if args.content is not None else sys.stdin.read()
+        asyncio.run(
+            run_scratch_capture(
+                get_db_path(args),
+                content=content,
+                project=args.project,
+                tags=args.tags,
+                ttl_hours=args.ttl_hours,
+            )
+        )
     elif command == "prune":
         asyncio.run(
             run_prune(

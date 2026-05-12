@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import tempfile
 from pathlib import Path
@@ -10,7 +11,13 @@ from unittest.mock import patch
 
 import pytest
 
-from rekal.__main__ import main, run_export, run_health, run_prune
+from rekal.__main__ import (
+    main,
+    run_export,
+    run_health,
+    run_prune,
+    run_scratch_capture,
+)
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 
 from .conftest import deterministic_embed
@@ -228,6 +235,81 @@ def test_main_prune() -> None:
 
         with patch("sys.argv", ["rekal", "--db", db_path, "prune", "--project", "trash", "--yes"]):
             main()
+
+
+async def test_run_scratch_capture(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        await run_scratch_capture(
+            db_path,
+            content="Pre-compact snapshot body",
+            project="alpha",
+            tags=["pre-compact", "session-snapshot"],
+            ttl_hours=168.0,
+        )
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert "id" in payload
+        assert "expires_at" in payload
+
+        db = await SqliteDatabase.create(db_path, deterministic_embed)
+        try:
+            stored = await db.get(payload["id"])
+            assert stored is not None
+            assert stored.tier == "scratch"
+            assert stored.project == "alpha"
+            assert "pre-compact" in stored.tags
+        finally:
+            await db.close()
+
+
+def test_main_scratch_capture_stdin() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        with (
+            patch("sys.argv", ["rekal", "--db", db_path, "scratch-capture", "--tag", "x"]),
+            patch("sys.stdin", io.StringIO("body from stdin")),
+        ):
+            main()
+
+        async def verify() -> None:
+            db = await SqliteDatabase.create(db_path, deterministic_embed)
+            try:
+                rows = await db.memory_timeline(limit=10)
+                assert any(m.content == "body from stdin" for m in rows)
+            finally:
+                await db.close()
+
+        asyncio.run(verify())
+
+
+def test_main_scratch_capture_with_content() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        with patch(
+            "sys.argv",
+            [
+                "rekal",
+                "--db",
+                db_path,
+                "scratch-capture",
+                "--content",
+                "explicit body",
+                "--project",
+                "alpha",
+            ],
+        ):
+            main()
+
+        async def verify() -> None:
+            db = await SqliteDatabase.create(db_path, deterministic_embed)
+            try:
+                rows = await db.memory_timeline(limit=10)
+                assert any(m.content == "explicit body" for m in rows)
+            finally:
+                await db.close()
+
+        asyncio.run(verify())
 
 
 def test_main_export() -> None:
