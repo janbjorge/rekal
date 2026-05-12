@@ -11,7 +11,7 @@ async def test_search_basic(db: SqliteDatabase) -> None:
     await db.store("Rust is a systems language", project="test")
     await db.store("Cooking pasta is easy", project="test")
 
-    results = await db.search("programming language", weights=ScoringWeights())
+    results = await db.search("programming language", project="test", weights=ScoringWeights())
     assert len(results) > 0
     # FTS should rank programming language matches higher
     assert any("programming" in r.content.lower() for r in results)
@@ -107,7 +107,7 @@ async def test_search_uses_project_config(db: SqliteDatabase) -> None:
 
     proj_weights = await db.resolve_weights("proj")
     r_config = await db.search("project config weight", project="proj", weights=proj_weights)
-    r_default = await db.search("project config weight", weights=ScoringWeights())
+    r_default = await db.search("project config weight", project="proj", weights=ScoringWeights())
     assert len(r_config) > 0
     assert len(r_default) > 0
     # Project config should produce different scores than defaults
