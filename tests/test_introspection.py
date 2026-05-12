@@ -102,7 +102,7 @@ async def test_memory_conflicts(db: SqliteDatabase) -> None:
     mid2 = await db.store("Earth is round", project="geo")
     await db.add_memory_link(mid1, mid2, "contradicts")
 
-    conflicts = await db.memory_conflicts()
+    conflicts = await db.memory_conflicts(project="geo")
     assert len(conflicts) == 1
     assert conflicts[0].memory_id == mid1
     assert conflicts[0].related_id == mid2

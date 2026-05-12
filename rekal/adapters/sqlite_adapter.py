@@ -435,7 +435,7 @@ class SqliteDatabase:
                 continue  # pragma: no cover
             if mem.expires_at is not None and mem.expires_at <= now:
                 continue
-            if project is not None and mem.project != project:
+            if mem.project != project:
                 continue
             if memory_type is not None and mem.memory_type != memory_type:
                 continue
@@ -831,9 +831,9 @@ class SqliteDatabase:
             JOIN memories m1 ON m1.id = ml.from_id
             JOIN memories m2 ON m2.id = ml.to_id
             WHERE ml.relation = 'contradicts'
-              AND (? IS NULL OR m1.project = ? OR m2.project = ?)
+              AND (m1.project IS ? OR m2.project IS ?)
             """,
-            (project, project, project),
+            (project, project),
         ) as cursor:
             async for row in cursor:
                 results.append(
