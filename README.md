@@ -48,9 +48,9 @@ claude plugin install rekal-skills@rekal
 }
 ```
 
-> **Why is this required?** Claude Code's instruction priority is **system prompt > CLAUDE.md > MCP server instructions**. Built-in memory lives in the system prompt and always wins — without disabling it, the agent ignores rekal and writes to a flat file with no search, no deduplication, no ranking. The plugin's SessionStart hook replaces the context injection auto memory normally provides, so you don't lose anything.
+> **Why is this required?** Left enabled, Claude Code's built-in auto memory competes with rekal — it loads its own memory into the agent's context ([context layout](https://code.claude.com/docs/en/context-window)) and the agent favors it, writing to a flat file with no search, no deduplication, no ranking. Disabling it (`autoMemoryEnabled: false`, [settings docs](https://code.claude.com/docs/en/settings)) removes the competitor. The plugin's hooks then re-assert rekal: SessionStart restores the context injection auto memory normally provided, and UserPromptSubmit reinforces it every turn.
 >
-> **What if I forget?** The plugin's `block-memory-writes` hook will catch and block MEMORY.md writes as a safety net, but the agent wastes turns hitting the block. Disabling auto memory is cleaner.
+> **What if I forget?** The plugin's `block-memory-writes` and `redirect-memory-reads` hooks catch flat-file memory access (MEMORY.md/.txt, memories.*) and redirect the agent to rekal as a safety net, but it wastes turns hitting them. Disabling auto memory is cleaner.
 >
 > **Can the plugin do this automatically?** No — Claude Code doesn't allow plugins to modify user settings. This manual step is the only way.
 
@@ -61,7 +61,9 @@ claude plugin install rekal-skills@rekal
 | Hook | Event | What it does |
 |------|-------|-------------|
 | session-start | `SessionStart` | Reminds agent to call `memory_build_context` before doing anything |
-| block-memory-writes | `PreToolUse` on Edit/Write | Blocks writes to MEMORY.md, redirects to rekal tools |
+| user-prompt-submit | `UserPromptSubmit` | Re-asserts rekal as the memory system every turn — stops the agent drifting back to file-based memory as context grows |
+| block-memory-writes | `PreToolUse` on Edit/Write | Denies writes to flat-file memory (MEMORY.md/.txt, memories.*) with a reason redirecting to rekal tools |
+| redirect-memory-reads | `PreToolUse` on Read | Denies reads of flat-file memory and tells the agent to call `memory_build_context` instead — a missing file no longer reads as "no memory exists" |
 
 **Skills** (user-invocable):
 
@@ -242,7 +244,7 @@ scoring:
 
 ### Agent doesn't call memory_build_context at session start
 
-The `SessionStart` hook injects a reminder. If the agent ignores it, add to your project's `CLAUDE.md`:
+The `SessionStart` and `UserPromptSubmit` hooks inject a reminder at session start and on every turn. If the agent still ignores it, add to your project's `CLAUDE.md`:
 
 ```markdown
 Call memory_build_context before exploring the codebase.
@@ -272,8 +274,11 @@ claude plugin install rekal-skills@rekal
 Plugin (hooks + skills)
   │
   ├── hooks/
-  │   ├── handlers/session-start.py       ← SessionStart: inject context reminder
-  │   └── handlers/block-memory-writes.py ← PreToolUse: block MEMORY.md writes
+  │   ├── handlers/session-start.py        ← SessionStart: inject context reminder
+  │   ├── handlers/user-prompt-submit.py   ← UserPromptSubmit: re-assert rekal every turn
+  │   ├── handlers/block-memory-writes.py  ← PreToolUse: redirect MEMORY.md writes to rekal
+  │   ├── handlers/redirect-memory-reads.py ← PreToolUse: redirect MEMORY.md reads to rekal
+  │   └── handlers/shared.py               ← shared path predicate + deny helper
   │
   └── skills/
       ├── rekal-init/    ← /rekal-init: bootstrap project knowledge
@@ -302,8 +307,9 @@ MCP Server (rekal)
 
 | What | Where | Why |
 |------|-------|-----|
-| "Use rekal tools, not MEMORY.md" | MCP server instructions + PreToolUse hook | Instructions guide, hook enforces |
+| "Memory lives in rekal, not files" | MCP server instructions + PreToolUse hooks (read + write) | Instructions guide, hooks enforce both directions |
 | "Call memory_build_context first" | SessionStart hook | Automatic, every session |
+| "Keep using rekal, don't drift" | UserPromptSubmit hook | Re-asserts every turn as context grows |
 | "How to store/search/supersede" | MCP server instructions | Always present next to the tools |
 | "Capture session knowledge" | rekal-save skill | Explicit trigger, detailed procedure |
 | "Bootstrap project" | rekal-init skill | Explicit trigger |

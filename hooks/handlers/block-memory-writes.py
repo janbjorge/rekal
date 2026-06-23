@@ -1,29 +1,18 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: block Edit/Write targeting MEMORY.md, redirect to rekal."""
+"""PreToolUse hook: redirect Edit/Write of a flat-file memory store to rekal."""
 
 from __future__ import annotations
 
 import json
 import sys
-from pathlib import PurePosixPath, PureWindowsPath
 
-BLOCKED_STEMS = frozenset(("memory",))
-BLOCKED_SUFFIXES = frozenset((".md",))
+from shared import emit_pretooluse_deny, is_memory_file
 
-BLOCK_MSG = (
-    "BLOCKED: Do not write to MEMORY.md. "
-    "Use rekal memory tools instead: memory_store, memory_supersede, memory_search. "
-    "rekal is your memory system."
+REASON = (
+    "Do not write memories to a file. rekal is your memory system — "
+    "use memory_store / memory_supersede instead. "
+    "memory_search to check for an existing memory first."
 )
-
-
-def is_memory_file(path: str) -> bool:
-    # A posix parser mangles Windows paths (treats "C:\foo\bar" as one segment)
-    # and vice versa — check both so we catch either convention.
-    return any(
-        cls(path).suffix.lower() in BLOCKED_SUFFIXES and cls(path).stem.lower() in BLOCKED_STEMS
-        for cls in (PurePosixPath, PureWindowsPath)
-    )
 
 
 def main() -> None:
@@ -31,10 +20,7 @@ def main() -> None:
     data = json.load(sys.stdin)
     path = data.get("tool_input", {}).get("file_path", "")
     if path and is_memory_file(path):
-        # stderr becomes the agent-visible block reason;
-        # exit code 2 tells Claude Code to abort the tool call.
-        print(BLOCK_MSG, file=sys.stderr)
-        raise SystemExit(2)
+        emit_pretooluse_deny(REASON)
 
 
 if __name__ == "__main__":
