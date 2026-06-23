@@ -1,10 +1,8 @@
 # rekal scoring
 
-Source-of-truth reference for how `memory_search` ranks results. Covers
-the three signals, their normalization, how candidates are retrieved and
-merged, the four-layer weight resolution, and a tuning guide. Keep this
-file in sync with `rekal/scoring.py` and the `search` / `resolve_weights`
-methods in `rekal/adapters/sqlite_adapter.py`.
+How `memory_search` ranks results. Keep this file in sync with
+`rekal/scoring.py` and the `search` / `resolve_weights` methods in
+`rekal/adapters/sqlite_adapter.py`.
 
 > **Why this exists.** "Hybrid search" is three independent signals
 > squashed onto a common `[0, 1]` scale and summed with weights. Each
