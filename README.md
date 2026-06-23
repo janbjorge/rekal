@@ -93,6 +93,7 @@ claude plugin install rekal-skills@rekal
 |------|-------|-------------|
 | session-start | `SessionStart` | Reminds agent to call `memory_build_context` before doing anything |
 | user-prompt-submit | `UserPromptSubmit` | Re-asserts rekal as the memory system every turn — stops the agent drifting back to file-based memory as context grows |
+| pre-compact | `PreCompact` | Snapshots the last ~20 turns as a scratch memory tagged `pre-compact` (7-day TTL) so working context survives compaction |
 | block-memory-writes | `PreToolUse` on Edit/Write | Denies writes to flat-file memory (MEMORY.md/.txt, memories.*) with a reason redirecting to rekal tools |
 | redirect-memory-reads | `PreToolUse` on Read | Denies reads of flat-file memory and tells the agent to call `memory_build_context` instead — a missing file no longer reads as "no memory exists" |
 
@@ -349,6 +350,10 @@ The `SessionStart` and `UserPromptSubmit` hooks inject a reminder at session sta
 Call memory_build_context before exploring the codebase.
 ```
 
+### Pre-compact snapshot not appearing
+
+The `PreCompact` hook shells out to `rekal scratch-capture`, so `rekal` must be on `PATH` for the hook's shell — install with `pip install rekal` or `uv tool install rekal`. The hook is silent on every failure path (compaction must always proceed), so a missing binary just means no snapshot. Recover snapshots with `memory_search` filtered to the `pre-compact` tag.
+
 ### Memories not being stored
 
 Check the MCP server is running: `claude mcp list` should show `rekal`. If missing:
@@ -364,10 +369,11 @@ Claude Code may serve a stale plugin cache. Clear it and reinstall (see [Update 
 ## CLI
 
 ```bash
-rekal serve    # Run as MCP server (default)
-rekal health   # Database health report
-rekal export   # Export all memories as JSON
-rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
+rekal serve            # Run as MCP server (default)
+rekal health           # Database health report
+rekal export           # Export all memories as JSON
+rekal prune            # Bulk-delete memories by scope (dry-run unless --yes)
+rekal scratch-capture  # Store a scratch-tier memory with TTL (used by PreCompact hook)
 ```
 
 `rekal prune` requires at least one filter: `--project NAME`, `--memory-type TYPE`, `--older-than-days N`, or `--before "YYYY-MM-DD HH:MM:SS"`. Without `--yes` it only reports the match count.
@@ -383,9 +389,10 @@ Plugin (hooks + skills)
   ├── hooks/
   │   ├── handlers/session-start.py        ← SessionStart: inject context reminder
   │   ├── handlers/user-prompt-submit.py   ← UserPromptSubmit: re-assert rekal every turn
+  │   ├── handlers/pre-compact.py          ← PreCompact: snapshot last ~20 turns to scratch tier
   │   ├── handlers/block-memory-writes.py  ← PreToolUse: redirect MEMORY.md writes to rekal
   │   ├── handlers/redirect-memory-reads.py ← PreToolUse: redirect MEMORY.md reads to rekal
-  │   └── handlers/shared.py               ← shared path predicate + deny helper
+  │   └── handlers/shared.py               ← shared path predicate + deny helper + rekal CLI bridge
   │
   └── skills/
       ├── rekal-init/    ← /rekal-init: bootstrap project knowledge
@@ -417,12 +424,15 @@ MCP Server (rekal)
 | "Memory lives in rekal, not files" | MCP server instructions + PreToolUse hooks (read + write) | Instructions guide, hooks enforce both directions |
 | "Call memory_build_context first" | SessionStart hook | Automatic, every session |
 | "Keep using rekal, don't drift" | UserPromptSubmit hook | Re-asserts every turn as context grows |
+| Snapshot before context compaction | PreCompact hook (calls `rekal scratch-capture`) | Working context survives compaction |
 | "How to store/search/supersede" | MCP server instructions | Always present next to the tools |
 | "Capture session knowledge" | rekal-save skill | Explicit trigger, detailed procedure |
 | "Bootstrap project" | rekal-init skill | Explicit trigger |
 | "Clean up database" | rekal-hygiene skill | Explicit trigger |
 
 </details>
+
+`rekal scratch-capture` reads memory content from `--content` or stdin, tags it via `--tag` (repeatable), and stores it with `--ttl-hours` (default 168 = 7 days). The PreCompact hook uses it to snapshot session context before compaction.
 
 ## License
 

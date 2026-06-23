@@ -1,5 +1,5 @@
 {
-  "description": "rekal memory hooks: redirect built-in memory to rekal, load context at session start",
+  "description": "rekal memory hooks: inject context at session start, snapshot before compaction, redirect built-in memory writes",
   "hooks": {
     "SessionStart": [
       {
@@ -17,6 +17,16 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/user-prompt-submit.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/pre-compact.py"
           }
         ]
       }
