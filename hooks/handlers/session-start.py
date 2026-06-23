@@ -14,8 +14,10 @@ CONTEXT = (
     "rekal is your memory system. "
     "Before doing anything else, call memory_build_context with your current task "
     "to load relevant prior knowledge. "
-    "Do NOT use MEMORY.md or CLAUDE.md for storing memories — "
-    "all persistent knowledge goes through rekal tools "
+    "Persistent memory lives ONLY in rekal, never in files: there is no MEMORY.md "
+    "and no memory section of CLAUDE.md. Do not look for, read, or infer memory "
+    "from any file — a missing file means nothing, not 'no prior knowledge.' "
+    "All persistent knowledge goes through rekal tools "
     "(memory_store, memory_supersede, memory_search)."
 )
 
