@@ -309,6 +309,8 @@ scoring:
 
 </details>
 
+Full ranking reference — normalization, candidate retrieval, weight resolution, and a tuning guide — in [docs/scoring.md](docs/scoring.md).
+
 ### Why SQLite?
 
 - **Single file** — copy, back up, version-control, or delete to start fresh
