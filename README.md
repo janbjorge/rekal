@@ -4,6 +4,8 @@
 
 rekal is an [MCP](https://modelcontextprotocol.io) server that gives AI coding agents persistent memory across sessions. Memories are stored locally in SQLite and retrieved with hybrid search (BM25 keywords + vector semantics + recency decay). Nothing leaves your machine.
 
+[How it works](#how-it-works) · [Quickstart](#quickstart-claude-code) · [Install](#install) · [Setup](#setup--claude-code) · [Updating](#updating) · [Tools](#tools) · [Under the hood](#under-the-hood) · [Troubleshooting](#troubleshooting--claude-code)
+
 Works with any MCP-capable agent: [Claude Code](#setup--claude-code), [Codex CLI](#setup--codex-cli), [OpenCode](#setup--opencode).
 
 ```
@@ -13,6 +15,27 @@ Session 47:  "Set up linting"            → memory_search("formatting preferenc
                                           Sets up Ruff without asking.
 ```
 
+## How it works
+
+1. **Store** — the agent saves a durable fact with `memory_store`: a preference, a decision, a non-obvious discovery.
+2. **Index** — rekal writes it to SQLite and builds two indexes over it: a BM25 keyword index and a 384-dimensional vector embedding, both computed locally with no network calls.
+3. **Recall** — in a later session the agent calls `memory_search` (or `memory_build_context`). rekal blends keyword match, semantic similarity, and recency into a single score and returns the top hits.
+
+All state is a single file — `~/.rekal/memory.db`. No daemon, no cloud, no API keys. For the scoring formula, schema, and embedding model, see [Under the hood](#under-the-hood).
+
+## Quickstart (Claude Code)
+
+```bash
+uv tool install rekal                          # 1. install rekal (or: pip install rekal)
+claude mcp add rekal -- rekal                  # 2. register the MCP server
+claude plugin marketplace add janbjorge/rekal  # 3. add the plugin marketplace
+claude plugin install rekal-skills@rekal       # 4. install the plugin
+```
+
+Then add `"autoMemoryEnabled": false` to `~/.claude/settings.json` so Claude Code's built-in memory doesn't compete with rekal.
+
+Restart Claude Code and the agent has persistent memory. For what each step does, the other agents (Codex CLI, OpenCode), and the rationale behind disabling built-in memory, read on.
+
 ## Install
 
 ```bash
@@ -21,7 +44,7 @@ pip install rekal
 uv tool install rekal
 ```
 
-Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db`.
+Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db`. To upgrade an existing install later, see [Updating](#updating).
 
 ## Setup — Claude Code
 
@@ -30,8 +53,10 @@ Three steps: add the MCP server, install the plugin, and disable built-in memory
 **1. Add the MCP server** — gives Claude Code the memory tools:
 
 ```bash
-claude mcp add rekal rekal
+claude mcp add rekal -- rekal
 ```
+
+(`--` separates Claude Code's own flags from the command that launches the server; stdio is the default transport — [MCP docs](https://code.claude.com/docs/en/mcp).)
 
 **2. Install the plugin** — teaches Claude Code when to use those tools, and prevents conflicts with built-in memory:
 
@@ -48,13 +73,19 @@ claude plugin install rekal-skills@rekal
 }
 ```
 
-> **Why is this required?** Left enabled, Claude Code's built-in auto memory competes with rekal — it loads its own memory into the agent's context ([context layout](https://code.claude.com/docs/en/context-window)) and the agent favors it, writing to a flat file with no search, no deduplication, no ranking. Disabling it (`autoMemoryEnabled: false`, [settings docs](https://code.claude.com/docs/en/settings)) removes the competitor. The plugin's hooks then re-assert rekal: SessionStart restores the context injection auto memory normally provided, and UserPromptSubmit reinforces it every turn.
->
-> **What if I forget?** The plugin's `block-memory-writes` and `redirect-memory-reads` hooks catch flat-file memory access (MEMORY.md/.txt, memories.*) and redirect the agent to rekal as a safety net, but it wastes turns hitting them. Disabling auto memory is cleaner.
->
-> **Can the plugin do this automatically?** No — Claude Code doesn't allow plugins to modify user settings. This manual step is the only way.
+<details>
+<summary><b>Why disable built-in memory, and what if I forget?</b></summary>
 
-### What the plugin provides
+**Why is this required?** Left enabled, Claude Code's built-in auto memory competes with rekal — it loads its own memory into the agent's context ([context layout](https://code.claude.com/docs/en/context-window)) and the agent favors it, writing to a flat file with no search, no deduplication, no ranking. Disabling it (`autoMemoryEnabled: false`, [settings docs](https://code.claude.com/docs/en/settings)) removes the competitor. The plugin's hooks then re-assert rekal: SessionStart restores the context injection auto memory normally provided, and UserPromptSubmit reinforces it every turn.
+
+**What if I forget?** The plugin's `block-memory-writes` and `redirect-memory-reads` hooks catch flat-file memory access (MEMORY.md/.txt, memories.*) and redirect the agent to rekal as a safety net, but it wastes turns hitting them. Disabling auto memory is cleaner.
+
+**Can the plugin do this automatically?** No — Claude Code only lets a plugin's `settings.json` set the `agent` and `subagentStatusLine` keys ([plugin settings](https://code.claude.com/docs/en/plugins)); it cannot touch `autoMemoryEnabled`. This manual step is the only way.
+
+</details>
+
+<details>
+<summary><b>What the plugin provides</b> — hooks and skills</summary>
 
 **Hooks** (automatic, no user action needed):
 
@@ -73,6 +104,8 @@ claude plugin install rekal-skills@rekal
 | `rekal-save` | `/rekal-save` or auto on session end | Deduplicates and stores durable knowledge from the conversation |
 | `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
+
+</details>
 
 ## Setup — Codex CLI
 
@@ -95,11 +128,17 @@ Instruct the agent to call `memory_build_context` at session start. Add to your 
 Call memory_build_context with your current task before exploring the codebase.
 ```
 
-> **If you have enabled Codex memories** (`memories = true` in `~/.codex/config.toml`): disable them to avoid competing memory instructions.
-> ```toml
-> [features]
-> memories = false
-> ```
+<details>
+<summary>If you've enabled Codex memories</summary>
+
+(`memories = true` in `~/.codex/config.toml`): disable them to avoid competing memory instructions.
+
+```toml
+[features]
+memories = false
+```
+
+</details>
 
 ## Setup — OpenCode
 
@@ -132,9 +171,45 @@ OpenCode does **not** auto-read `AGENTS.md` — you must list instruction files 
 }
 ```
 
+## Updating
+
+### Update rekal (the MCP server)
+
+```bash
+pip install -U rekal
+# or
+uv tool upgrade rekal
+```
+
+Restart your agent so it relaunches the server. The SQLite schema **migrates automatically** on the next start — new columns are added in place and existing memories are preserved. No manual migration step, no data loss. To start fresh instead, delete `~/.rekal/memory.db` (rekal recreates it on next run).
+
+### Update the Claude Code plugin
+
+Third-party marketplaces have auto-update **off** by default ([auto-update docs](https://code.claude.com/docs/en/discover-plugins#configure-auto-updates)), so refresh manually, then reload:
+
+```bash
+claude plugin marketplace update rekal     # refresh the catalog
+claude plugin install rekal-skills@rekal   # reinstall to pull the update
+```
+
+If hooks or skills are still missing afterward, Claude Code is serving a stale plugin cache. Clear it, restart Claude Code, then reinstall ([official remedy](https://code.claude.com/docs/en/discover-plugins#common-issues)):
+
+```bash
+rm -rf ~/.claude/plugins/cache
+```
+
 ## Tools
 
-rekal exposes 21 MCP tools grouped into four categories.
+rekal exposes 21 MCP tools across four categories. The three you'll use most:
+
+| Tool | Purpose |
+|------|---------|
+| `memory_store` | Store a durable memory with type, project, and tags |
+| `memory_search` | Hybrid search across memories; filter by `tier` (`durable`/`scratch`) |
+| `memory_build_context` | One call returning durable + scratch memories, conflicts, and timeline |
+
+<details>
+<summary><b>All 21 tools</b> — core, smart write, introspection, conversations</summary>
 
 **Core** — read and write memories:
 
@@ -177,7 +252,9 @@ rekal exposes 21 MCP tools grouped into four categories.
 | `conversation_threads` | List recent conversations with memory counts |
 | `conversation_stale` | Find inactive conversations |
 
-## How it works
+</details>
+
+## Under the hood
 
 ### Storage
 
@@ -207,7 +284,10 @@ score = w_fts × sigmoid(-BM25)                       ← keyword relevance    (
 
 **Why three signals?** Keywords miss synonyms ("deploy" vs "ship to prod"). Vectors miss exact identifiers. Recency alone buries important old knowledge. The blend covers all three failure modes.
 
-**Configurable weights.** All weights and half-life are configurable at three levels:
+<details>
+<summary><b>Configurable weights</b> — four resolution layers + <code>.rekal/config.yml</code></summary>
+
+All weights and half-life are configurable at four levels:
 
 | Priority | Source | Set by | Persists? |
 |----------|--------|--------|-----------|
@@ -226,6 +306,8 @@ scoring:
   w_recency: 0.1
   half_life: 14.0
 ```
+
+</details>
 
 ### Why SQLite?
 
@@ -255,20 +337,28 @@ Call memory_build_context before exploring the codebase.
 Check the MCP server is running: `claude mcp list` should show `rekal`. If missing:
 
 ```bash
-claude mcp add rekal rekal
+claude mcp add rekal -- rekal
 ```
 
-### Updating the plugin
+### Hooks or skills missing after a plugin update
 
-Claude Code's plugin system may serve a stale cache after `plugin install`. If hooks or skills are missing after an update, clear the marketplace cache first:
+Claude Code may serve a stale plugin cache. Clear it and reinstall — see [Update the Claude Code plugin](#update-the-claude-code-plugin).
+
+## CLI
 
 ```bash
-rm -rf ~/.claude/plugins/marketplaces/rekal
-claude plugin marketplace add janbjorge/rekal
-claude plugin install rekal-skills@rekal
+rekal serve    # Run as MCP server (default)
+rekal health   # Database health report
+rekal export   # Export all memories as JSON
+rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
 ```
 
+`rekal prune` requires at least one filter: `--project NAME`, `--memory-type TYPE`, `--older-than-days N`, or `--before "YYYY-MM-DD HH:MM:SS"`. Without `--yes` it only reports the match count.
+
 ## Architecture (for contributors)
+
+<details>
+<summary>Plugin + MCP server layout, and the single-source instruction flow</summary>
 
 ```
 Plugin (hooks + skills)
@@ -315,16 +405,7 @@ MCP Server (rekal)
 | "Bootstrap project" | rekal-init skill | Explicit trigger |
 | "Clean up database" | rekal-hygiene skill | Explicit trigger |
 
-## CLI
-
-```bash
-rekal serve    # Run as MCP server (default)
-rekal health   # Database health report
-rekal export   # Export all memories as JSON
-rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
-```
-
-`rekal prune` requires at least one filter: `--project NAME`, `--memory-type TYPE`, `--older-than-days N`, or `--before "YYYY-MM-DD HH:MM:SS"`. Without `--yes` it only reports the match count.
+</details>
 
 ## License
 
