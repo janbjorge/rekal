@@ -1,9 +1,7 @@
 # rekal data model
 
-This is the source-of-truth reference for the SQLite schema rekal stores
-its memories in. Every table, column, index, trigger, virtual table, and
-the relationships between them. Keep this file in sync with
-`rekal/adapters/sqlite_adapter.py`.
+The SQLite schema rekal stores its memories in. Keep this file in sync
+with `rekal/adapters/sqlite_adapter.py`.
 
 > **Why this exists.** The schema has grown three orthogonal axes —
 > *type* (semantic), *tier* (lifecycle), *links* (graph) — plus two
