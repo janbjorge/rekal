@@ -25,8 +25,8 @@ score = w_fts     × normalize_fts(bm25)
 Defaults: `w_fts = 0.4`, `w_vec = 0.4`, `w_recency = 0.2`,
 `half_life = 30.0` days (`ScoringWeights` in `scoring.py`).
 
-Weights are **not** re-normalized. With the defaults they sum to 1.0, so
-a perfect hit on every signal scores 1.0 — but nothing stops you setting
+Weights are not re-normalized. With the defaults they sum to 1.0, so
+a perfect hit on every signal scores 1.0, but nothing stops you setting
 `w_fts = 0.8, w_vec = 0.8`; the max score just becomes higher. Weights
 are relative knobs, not probabilities.
 
@@ -107,7 +107,7 @@ scores every survivor in Python.
 3. **Union** — `candidate_ids = vec_ids ∪ fts_ids`. Empty union returns
    `[]` immediately.
 4. **Fetch + filter** — for each candidate, `db.get(id)`, then drop in
-   Python on: expired (`expires_at <= now`), `project` (strict equality —
+   Python on: expired (`expires_at <= now`), `project` (strict equality,
    see [gotchas](#gotchas)), `memory_type`, `tier`, `conversation_id`.
 5. **Score** — `combine_scores`, write `mem.score`.
 6. **Bump access** — `access_count += 1`, `last_accessed_at = now` for
@@ -125,7 +125,7 @@ a hard guarantee: filter aggressively enough and you get fewer than
 ### Missing-signal defaults — the important subtlety
 
 A candidate found by only one lookup still gets scored on both. The
-defaults for the *absent* signal are chosen to contribute **zero**, not
+defaults for the *absent* signal are chosen to contribute zero, not
 to penalize:
 
 | Candidate found by | `fts_score` default | `vec_score` default | Effect |
@@ -134,7 +134,7 @@ to penalize:
 | FTS only | actual BM25 | `1.0` → `normalize_vec` = 0.0 | vector term contributes 0 |
 
 So a one-signal hit is never pushed *below* a row that simply lacked that
-signal — the missing term is neutral. Recency always applies (every row
+signal; the missing term is neutral. Recency always applies (every row
 has `created_at`).
 
 ### FTS query handling — `quote_fts`
@@ -146,7 +146,7 @@ return " ".join(f'"{t}"' for t in tokens)
 
 Every whitespace token is wrapped in FTS5 phrase quotes, so user input is
 always literal text, never FTS5 operators (`AND`, `*`, `NEAR`, column
-filters). Multiple quoted tokens are implicitly AND-ed by FTS5 — **all**
+filters). Multiple quoted tokens are implicitly AND-ed by FTS5: all
 tokens must appear for an FTS hit. The vector side has no such
 requirement, which is why a loosely-worded query can still match
 semantically through the vector lookup alone.
@@ -174,7 +174,7 @@ return ScoringWeights.model_validate(merged)
 
 Layers 1–3 merge through a `ChainMap`; pydantic supplies layer 4 for any
 key still missing and coerces DB/YAML strings to floats. Resolution is
-**per-key independent** — `.rekal/config.yml` can set `w_fts` while the
+**per-key independent**: `.rekal/config.yml` can set `w_fts` while the
 project config overrides only `half_life`, and each key takes its
 highest-priority source.
 
@@ -200,7 +200,7 @@ memory_set_config("w_fts", 0.6, project="my-project")
 ```
 
 Stored as TEXT in `project_config`, coerced to float at resolve time.
-Only applied when the search passes a `project` — a `project=None` search
+Only applied when the search passes a `project`; a `project=None` search
 ignores project config and falls through to file config + defaults.
 
 ---
@@ -229,7 +229,7 @@ repo. Use per-call `w_*` args only to experiment with a single query.
 
 - **`project` filter is strict equality.** `project=None` matches only
   global (NULL-project) memories; `project="x"` matches only `"x"`. There
-  is no "global + project" union and no fallback — this is deliberate, to
+  is no "global + project" union and no fallback. This is deliberate, to
   stop cross-project bleed.
 - **Recency uses `created_at` only.** `updated_at` and `last_accessed_at`
   are recorded but ignored by scoring. Editing a memory does not refresh
