@@ -268,6 +268,21 @@ Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separat
 
 **Tiers.** Durable memories live forever; scratch memories carry an `expires_at` and are hard-deleted on server start once past their TTL. Search, timeline, and topics hide expired scratch entries automatically. Use scratch for in-flight hypotheses and working notes that should not pollute the durable store.
 
+### Data model
+
+One table does the work; everything else hangs off it.
+
+| Table | Holds |
+|---|---|
+| `memories` | the atomic unit: content + `memory_type` (semantic) + `tier` (lifecycle) + scope, provenance, tags |
+| `memories_fts` | FTS5 keyword index, trigger-synced to `memories` |
+| `memory_vec` | sqlite-vec 384-dim embedding, 1:1 with `memories` (synced in Python, no trigger) |
+| `memory_links` | memory→memory graph: `supersedes` / `contradicts` / `related_to` |
+| `conversations` + `conversation_links` | session threads and their graph |
+| `project_config` | per-project scoring-weight overrides |
+
+A memory has three orthogonal axes: **type** (fact / preference / procedure / context / episode), **tier** (durable, or scratch with a TTL), and **links** (the graph). The full schema — every column, trigger, foreign-key note, and query lifecycle — lives in [docs/data-model.md](docs/data-model.md).
+
 ### Embeddings
 
 rekal uses [fastembed](https://github.com/qdrant/fastembed) with `BAAI/bge-small-en-v1.5` (384 dimensions). Runs locally via ONNX — no API calls, no network. The model downloads once on first use (~50MB) and is cached.
