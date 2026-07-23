@@ -101,6 +101,23 @@ def test_user_prompt_injects_query_memory(tmp_path: Path) -> None:
     assert "rekal" in ctx
 
 
+def test_user_prompt_passes_query_as_single_token(tmp_path: Path) -> None:
+    # A prompt starting with "-" must reach `rekal recall` as --query=<prompt>,
+    # not a bare arg argparse would mistake for a flag. Stub echoes its argv.
+    stub = tmp_path / "echo_argv.py"
+    stub.write_text("import sys\nsys.stdout.write(' '.join(sys.argv[1:]))\n")
+    cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
+    ctx = injected_context(
+        run_handler(
+            "user-prompt-submit.py",
+            stdin=json.dumps({"prompt": "--dangerous flag"}),
+            env={"REKAL_RECALL_CMD": cmd},
+        ),
+        "UserPromptSubmit",
+    )
+    assert "--query=--dangerous flag" in ctx
+
+
 @pytest.mark.parametrize("stdin", ["", "{}", '{"prompt": ""}', "[]", "not json"])
 def test_user_prompt_directive_when_no_prompt(tmp_path: Path, stdin: str) -> None:
     # No usable prompt → recall skipped, directive-only. Stub would print if

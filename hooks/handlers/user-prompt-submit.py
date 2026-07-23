@@ -38,7 +38,9 @@ def read_prompt() -> str | None:
 
 def main() -> None:
     prompt = read_prompt()
-    memory = run_recall_cli(["--query", prompt, "--limit", "5"]) if prompt else None
+    # --query=<prompt> (one token): a prompt starting with "-" would otherwise
+    # look like a flag to argparse and make `rekal recall` exit non-zero.
+    memory = run_recall_cli([f"--query={prompt}", "--limit", "5"]) if prompt else None
     emit_recall_context("UserPromptSubmit", DIRECTIVE, memory)
 
 

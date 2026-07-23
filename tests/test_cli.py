@@ -164,6 +164,24 @@ def test_main_recall(monkeypatch: pytest.MonkeyPatch) -> None:
             main()
 
 
+def test_main_recall_leading_dash_query() -> None:
+    # `--query=-x` must parse; a bare `--query -x` would make argparse exit.
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+
+        async def setup() -> None:
+            db = await SqliteDatabase.create(db_path, deterministic_embed)
+            await db.close()
+
+        asyncio.run(setup())
+
+        with (
+            patch_embedder,
+            patch("sys.argv", ["rekal", "--db", db_path, "recall", "--query=-dashy"]),
+        ):
+            main()
+
+
 def test_main_health() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "test.db")
