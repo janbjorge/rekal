@@ -5,10 +5,10 @@ Prove rekal cuts token usage by recalling cross-session knowledge, so a
 
 ## Two theses
 
-- **Density thesis** (tinygrad): non-obvious code → recall beats
+- **Density thesis** (tinygrad): non-obvious code -> recall beats
   re-derivation. Small file-count, high reasoning depth.
-- **Size thesis** (pytorch): more files → more search → bigger delta.
-  ~11x tinygrad on both file-count and LOC → plots savings vs repo size.
+- **Size thesis** (pytorch): more files -> more search -> bigger delta.
+  ~11x tinygrad on both file-count and LOC -> plots savings vs repo size.
 - **Breadth** (fastapi, pydantic): mid-size, vastly popular libraries as
   additional data points between the two extremes.
 
@@ -26,7 +26,7 @@ Prove rekal cuts token usage by recalling cross-session knowledge, so a
 20 per repo = 10 subsystem-aligned **pairs**. Each pair targets one
 subsystem (same files):
 
-- **seed** Q: asked in the learn pass → agent explores, answers, stores
+- **seed** Q: asked in the learn pass -> agent explores, answers, stores
   memory.
 - **held-out** Q: never asked cold in learn pass. Same subsystem. Warm
   agent benefits ONLY via transfer, not verbatim recall.
@@ -47,13 +47,13 @@ Three configs decompose net effect into overhead vs content benefit.
 | cold       | none               | none          | true baseline: agent with NO rekal     |
 | warm-empty | MCP + recall hooks | empty         | isolates FIXED overhead (tool schemas + hook payload) |
 | warm-seed  | MCP + recall hooks | frozen seed   | recall benefit                         |
-| learn      | MCP, store on      | empty→seed    | build the frozen seed DB once (not measured) |
+| learn      | MCP, store on      | empty->seed    | build the frozen seed DB once (not measured) |
 
 Decomposition (tokens):
 
-- **fixed overhead** = warm-empty − cold  (cost of adopting rekal at all)
-- **content benefit** = warm-empty − warm-seed  (what memory buys)
-- **net effect** = cold − warm-seed  (headline: does rekal save tokens?)
+- **fixed overhead** = warm-empty - cold  (cost of adopting rekal at all)
+- **content benefit** = warm-empty - warm-seed  (what memory buys)
+- **net effect** = cold - warm-seed  (headline: does rekal save tokens?)
 
 Notes:
 
@@ -61,13 +61,13 @@ Notes:
   same hookless `settings.json` (`autoMemoryEnabled: false`), so the only
   difference between arms is rekal itself, not auth, plugins, or global
   CLAUDE.md (none load: the config dir is isolated, not `~/.claude`).
-- cold adds nothing: `--strict-mcp-config` with no `--mcp-config` → zero
-  MCP servers, and no `--settings hooks.json` → no recall injection.
+- cold adds nothing: `--strict-mcp-config` with no `--mcp-config` -> zero
+  MCP servers, and no `--settings hooks.json` -> no recall injection.
 - `--bare` is NOT used. It disables subscription auth (headless `--bare`
   always returns "Not logged in"), so isolation via a dedicated config
   dir is what gives the clean baseline instead.
 - warm arms layer on rekal: `--mcp-config` (`rekal mcp`) + `--settings
-  config/warm/hooks.json` wiring SessionStart/UserPromptSubmit →
+  config/warm/hooks.json` wiring SessionStart/UserPromptSubmit ->
   `rekal hook <event>` (reads `REKAL_DB_PATH` from the run's env).
 - Store is OFF in measured runs, enforced at the allowlist: measured warm
   arms only get `memory_build_context` + `memory_search`, never
@@ -80,8 +80,8 @@ Notes:
   code anyway, so recall adds turns instead of replacing exploration.
   Recall-first is how rekal is meant to be used, not a thumb on the
   scale. Given
-  to warm-empty AND warm-seed so overhead=warm-empty−cold absorbs the
-  instruction and benefit=warm-empty−warm-seed still isolates memory
+  to warm-empty AND warm-seed so overhead=warm-empty-cold absorbs the
+  instruction and benefit=warm-empty-warm-seed still isolates memory
   content. cold has no memory, so its prompt stays the bare question.
 - Seed DB built once by a curated learn pass, then FROZEN (chmod 0o444)
   per run so stray writes can't mutate it.
@@ -103,9 +103,9 @@ Notes:
 
 ## Confounds controlled
 
-- model nondeterminism → N=3, median+MAD (same gate style as pgqueuer
+- model nondeterminism -> N=3, median+MAD (same gate style as pgqueuer
   benchmark)
-- memory quality dominates → seed DB curated, frozen, inspected
+- memory quality dominates -> seed DB curated, frozen, inspected
 - success parity enforced by judge
 - injection overhead counted explicitly; small tasks may go net-negative
   (rekal costs more). Report honestly: it bounds where rekal pays off

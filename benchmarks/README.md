@@ -48,9 +48,9 @@ decomposes into cost vs benefit (tokens):
 | `warm-empty` | rekal loaded, empty DB: pure fixed overhead  |
 | `warm-seed`  | rekal loaded, frozen seed DB: the payoff     |
 
-- **fixed overhead** = warm-empty − cold (cost of adopting rekal)
-- **content benefit** = warm-empty − warm-seed (what memory buys)
-- **net effect** = cold − warm-seed (headline: does it save tokens?)
+- **fixed overhead** = warm-empty - cold (cost of adopting rekal)
+- **content benefit** = warm-empty - warm-seed (what memory buys)
+- **net effect** = cold - warm-seed (headline: does it save tokens?)
 
 All three share ONE authenticated config dir and the same hookless
 `settings.json`, so the *only* difference between arms is rekal itself.
@@ -74,9 +74,9 @@ because it disables auth. Details in DESIGN.md.
 | command             | does                                                        |
 |---------------------|-------------------------------------------------------------|
 | `setup`             | clone all pinned repos, make dirs, write config/warm        |
-| `learn REPO`        | fresh seed DB → answer seed Qs store-on → freeze read-only  |
-| `run REPO`          | run every question × arm × N, append `results/REPO.jsonl`   |
-| `judge REPO`        | grade each answer 0-2 vs source → `results/REPO.judged.jsonl` |
+| `learn REPO`        | fresh seed DB -> answer seed Qs store-on -> freeze read-only  |
+| `run REPO`          | run every question x arm x N, append `results/REPO.jsonl`   |
+| `judge REPO`        | grade each answer 0-2 vs source -> `results/REPO.judged.jsonl` |
 | `aggregate REPO`    | median tables + overhead/benefit/net + quality parity       |
 
 `run` options: `--n 3` (runs per question/arm), `--arms cold,warm-empty,warm-seed`,
@@ -100,7 +100,7 @@ CLAUDE_CONFIG_DIR="$PWD/config/warm" claude -p "say pong"
 
 Do **not** run under `--bare` to "get a clean baseline". `--bare`
 disables subscription auth and every run comes back "Not logged in". If a
-run isn't authenticated the runner hard-exits (`claude run failed … is it
+run isn't authenticated the runner hard-exits (`claude run failed ... is it
 logged in?`) rather than silently record a zero-token run that would
 poison the medians.
 
@@ -116,9 +116,9 @@ empty.
 ## Reading `aggregate`
 
 - Per-pair table: median total tokens for cold / warm-empty / warm-seed
-  and `net%` = `(cold − warm-seed) / cold`.
+  and `net%` = `(cold - warm-seed) / cold`.
 - Per-role summary: the overhead/benefit/net decomposition, plus a
-  **quality** line (`cold=… warm-seed=…`). If warm scored materially worse
+  **quality** line (`cold=... warm-seed=...`). If warm scored materially worse
   it's flagged `WARM WORSE, savings suspect`, since a cheap wrong answer is
   not a win. Run `judge` first or `aggregate` warns that quality is
   unverified.
