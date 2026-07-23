@@ -26,7 +26,6 @@ from rekal.models import (
 from rekal.scoring import RawScores, ScoringWeights, combine_scores
 
 if TYPE_CHECKING:
-    import sqlite3
     from collections.abc import AsyncIterator
 
     from rekal.embeddings import EmbeddingFunc
@@ -156,15 +155,10 @@ async def migrate_memories_table(db: aiosqlite.Connection) -> None:
 
 async def init_connection(db: aiosqlite.Connection, dimensions: int) -> None:
     """Load sqlite-vec, apply the schema, and migrate an open connection."""
-
-    def load_vec(conn: sqlite3.Connection) -> None:
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.enable_load_extension(False)
-
     db.row_factory = aiosqlite.Row
-    await db.execute("select 1")  # ensure connection is open
-    await db._execute(load_vec, db._conn)  # type: ignore[arg-type]
+    await db.enable_load_extension(True)
+    await db.load_extension(sqlite_vec.loadable_path())
+    await db.enable_load_extension(False)
     await db.executescript(SCHEMA)
     await db.execute(VEC_TABLE_SQL % dimensions)
     await migrate_memories_table(db)
