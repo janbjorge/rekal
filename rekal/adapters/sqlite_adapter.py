@@ -154,6 +154,23 @@ async def migrate_memories_table(db: aiosqlite.Connection) -> None:
     )
 
 
+async def init_connection(db: aiosqlite.Connection, dimensions: int) -> None:
+    """Load sqlite-vec, apply the schema, and migrate an open connection."""
+
+    def load_vec(conn: sqlite3.Connection) -> None:
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+
+    db.row_factory = aiosqlite.Row
+    await db.execute("select 1")  # ensure connection is open
+    await db._execute(load_vec, db._conn)  # type: ignore[arg-type]
+    await db.executescript(SCHEMA)
+    await db.execute(VEC_TABLE_SQL % dimensions)
+    await migrate_memories_table(db)
+    await db.commit()
+
+
 def quote_fts(query: str) -> str:
     """Wrap each token in FTS5 phrase quotes so the query is always treated as literal text."""
     tokens = query.replace('"', " ").replace("\x00", "").split()
@@ -216,20 +233,15 @@ class SqliteDatabase:
         *,
         dimensions: int = 384,
     ) -> SqliteDatabase:
+        # connect() starts a non-daemon worker thread, so a failure during
+        # init (e.g. the path is not a SQLite file) must close the connection
+        # or the orphaned thread blocks interpreter/pytest exit.
         db = await aiosqlite.connect(db_path)
-        db.row_factory = aiosqlite.Row
-
-        def load_vec(conn: sqlite3.Connection) -> None:
-            conn.enable_load_extension(True)
-            sqlite_vec.load(conn)
-            conn.enable_load_extension(False)
-
-        await db.execute("select 1")  # ensure connection is open
-        await db._execute(load_vec, db._conn)  # type: ignore[arg-type]
-        await db.executescript(SCHEMA)
-        await db.execute(VEC_TABLE_SQL % dimensions)
-        await migrate_memories_table(db)
-        await db.commit()
+        try:
+            await init_connection(db, dimensions)
+        except Exception:
+            await db.close()
+            raise
         return SqliteDatabase(db=db, embed=embed)
 
     async def close(self) -> None:
