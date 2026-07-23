@@ -75,6 +75,13 @@ Notes:
   it works, so leaving store merely unrequested isn't enough — a stray
   write would burn a turn (and fail against the frozen seed) and inflate
   the warm arm. Only `learn` exposes `memory_store`, to build the seed DB.
+- Both warm arms' prompts get a recall nudge ("recall first, read only to
+  fill gaps"). Without it the warm agent recalls memory but re-reads the
+  code anyway, so recall adds turns instead of replacing exploration —
+  which is how rekal is meant to be used, not a thumb on the scale. Given
+  to warm-empty AND warm-seed so overhead=warm-empty−cold absorbs the
+  instruction and benefit=warm-empty−warm-seed still isolates memory
+  content. cold has no memory, so its prompt stays the bare question.
 - Seed DB built once by a curated learn pass, then FROZEN (chmod 0o444)
   per run so stray writes can't mutate it.
 - Auth: headless `claude -p` needs a logged-in config dir. Authenticate
