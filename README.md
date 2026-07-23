@@ -91,8 +91,10 @@ claude plugin install rekal-skills@rekal
 
 | Hook | Event | What it does |
 |------|-------|-------------|
-| session-start | `SessionStart` | Reminds agent to call `memory_build_context` before doing anything |
-| user-prompt-submit | `UserPromptSubmit` | Re-asserts rekal as the memory system every turn, stopping the agent from drifting back to file-based memory as context grows |
+| session-start | `SessionStart` | Runs `rekal recall` and injects the recalled memories, plus a directive that memory lives only in rekal |
+| user-prompt-submit | `UserPromptSubmit` | Runs `rekal recall --query <prompt>` and injects the top matches for the turn, plus the same directive, so recall follows what you just asked as context grows |
+| pre-compact | `PreCompact` (auto) | Runs a subagent that saves durable facts to rekal before context is compacted, so nothing is lost to summarization |
+| session-end | `SessionEnd` | Runs a subagent that saves durable facts to rekal when the session ends |
 | block-memory-writes | `PreToolUse` on Edit/Write | Denies writes to flat-file memory (MEMORY.md/.txt, memories.*) with a reason redirecting to rekal tools |
 | redirect-memory-reads | `PreToolUse` on Read | Denies reads of flat-file memory and tells the agent to call `memory_build_context` instead, so a missing file no longer reads as "no memory exists" |
 
@@ -104,6 +106,16 @@ claude plugin install rekal-skills@rekal
 | `rekal-save` | `/rekal-save` or auto on session end | Deduplicates and stores durable knowledge from the conversation |
 | `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
 | `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, and stale data, then proposes fixes |
+
+</details>
+
+<details>
+<summary><b>Recall hooks: PATH and environment scoping</b></summary>
+
+The recall hooks shell out to the `rekal` CLI (`rekal recall`), which adds two requirements beyond installing the MCP server:
+
+- **`rekal` must be on the hook's PATH, and current.** The `recall` subcommand ships alongside these hooks. If `rekal` is not on the PATH Claude Code gives its hook subprocesses, or predates that subcommand, recall injects nothing that turn. You still get the directive and nothing errors, but no memory loads. When updating, move the CLI and the plugin together (see [Updating](#updating)).
+- **Project and database scoping belong in your shell or settings env, not the MCP `env` block.** `REKAL_PROJECT` and `REKAL_DB_PATH` set under the MCP server's `env` apply only to the MCP server process. The recall hook is a separate subprocess and does not inherit them, so it would read the default database with no project scope while the MCP tools use your configured scope. Set these in your shell environment or in Claude Code `settings.json` `env` so both the server and the hooks see the same values.
 
 </details>
 
@@ -341,13 +353,9 @@ Full ranking reference, covering normalization, candidate retrieval, weight reso
 1. Check `autoMemoryEnabled` is `false` in `~/.claude/settings.json`
 2. Check the plugin is installed: `claude plugin list` should show `rekal-skills`
 
-### Agent doesn't call memory_build_context at session start
+### Session starts with no memory injected
 
-The `SessionStart` and `UserPromptSubmit` hooks inject a reminder at session start and on every turn. If the agent still ignores it, add to your project's `CLAUDE.md`:
-
-```markdown
-Call memory_build_context before exploring the codebase.
-```
+The `SessionStart` and `UserPromptSubmit` hooks run `rekal recall` and inject the results, so memory should be present without the agent calling a tool. If nothing shows up, the hook cannot reach the CLI: confirm `rekal` is on the PATH Claude Code gives its hooks and is new enough to have the `recall` subcommand (`rekal recall --help`), and that any `REKAL_PROJECT` / `REKAL_DB_PATH` you rely on is set where the hook subprocess sees it (shell or `settings.json` `env`, not the MCP `env` block). See [Recall hooks: PATH and environment scoping](#setup-for-claude-code).
 
 ### Memories not being stored
 
@@ -381,11 +389,11 @@ rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
 Plugin (hooks + skills)
   │
   ├── hooks/
-  │   ├── handlers/session-start.py        ← SessionStart: inject context reminder
-  │   ├── handlers/user-prompt-submit.py   ← UserPromptSubmit: re-assert rekal every turn
+  │   ├── handlers/session-start.py        ← SessionStart: inject recalled memory
+  │   ├── handlers/user-prompt-submit.py   ← UserPromptSubmit: inject query-relevant memory
   │   ├── handlers/block-memory-writes.py  ← PreToolUse: redirect MEMORY.md writes to rekal
   │   ├── handlers/redirect-memory-reads.py ← PreToolUse: redirect MEMORY.md reads to rekal
-  │   └── handlers/shared.py               ← shared path predicate + deny helper
+  │   └── handlers/shared.py               ← shared path predicate, recall CLI, inject helpers
   │
   └── skills/
       ├── rekal-init/    ← /rekal-init: bootstrap project knowledge
