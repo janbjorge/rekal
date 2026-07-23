@@ -3,9 +3,9 @@
 The SQLite schema rekal stores its memories in. Keep this file in sync
 with `rekal/adapters/sqlite_adapter.py`.
 
-> **Why this exists.** The schema has grown three orthogonal axes —
-> *type* (semantic), *tier* (lifecycle), *links* (graph) — plus two
-> sidecar virtual tables (FTS5, vector). It is small enough to fit in
+> **Why this exists.** The schema has grown three orthogonal axes:
+> *type* (semantic), *tier* (lifecycle), and *links* (graph). It also has
+> two sidecar virtual tables (FTS5, vector). It is small enough to fit in
 > one head but not small enough to fit in zero. This doc is the head.
 
 ---
@@ -14,17 +14,17 @@ with `rekal/adapters/sqlite_adapter.py`.
 
 A `memory` is the atomic unit. Each row carries:
 
-- **identity** — `id` (16-hex UUID prefix)
-- **content** — the distilled, caveman-compressed text
-- **semantic axis** — `memory_type` (fact / preference / procedure / context / episode)
-- **lifecycle axis** — `tier` (durable / scratch) + optional `expires_at`
-- **scope** — `project` and/or `conversation_id`
-- **provenance** — `created_at`, `updated_at`, `access_count`, `last_accessed_at`
-- **categorization** — `tags` (JSON array)
+- **identity**: `id` (16-hex UUID prefix)
+- **content**: the distilled, caveman-compressed text
+- **semantic axis**: `memory_type` (fact / preference / procedure / context / episode)
+- **lifecycle axis**: `tier` (durable / scratch) + optional `expires_at`
+- **scope**: `project` and/or `conversation_id`
+- **provenance**: `created_at`, `updated_at`, `access_count`, `last_accessed_at`
+- **categorization**: `tags` (JSON array)
 
 Around it sit:
 
-- **two indexes on the same row** — full-text (FTS5) and dense vector
+- **two indexes on the same row**: full-text (FTS5) and dense vector
   (sqlite-vec). Kept in sync via triggers and a parallel-write in
   `db.store`.
 - **a memory→memory graph** (`memory_links`) for *supersedes*,
@@ -97,7 +97,7 @@ erDiagram
 
 ## Tables
 
-### `memories` — the primary entity
+### `memories` (the primary entity)
 
 ```sql
 CREATE TABLE IF NOT EXISTS memories (
@@ -120,20 +120,20 @@ CREATE TABLE IF NOT EXISTS memories (
 
 The table-level `CHECK (tier = 'durable' OR expires_at IS NOT NULL)`
 forbids a scratch row without a TTL. It applies only to DBs created after
-the constraint landed — SQLite has no `ALTER TABLE … ADD CHECK`, so DBs
-migrated from before it rely on the Python guard in `memory_store_scratch`
-instead.
+the constraint landed. SQLite has no `ALTER TABLE … ADD CHECK`, so DBs
+migrated from before it landed rely on the Python guard in
+`memory_store_scratch` instead.
 
 **Columns**
 
 | Column | Type | Default | Notes |
 |---|---|---|---|
-| `id` | TEXT | — | 16-hex from `uuid4().hex[:16]` |
-| `content` | TEXT | — | Distilled fact. Caveman-compressed. 1–2 sentences. |
-| `memory_type` | TEXT | `'fact'` | Enum: `fact`, `preference`, `procedure`, `context`, `episode`. **Validated in Python (`MemoryType` Literal), not at the DB layer** — no CHECK on this column. |
+| `id` | TEXT | none | 16-hex from `uuid4().hex[:16]` |
+| `content` | TEXT | none | Distilled fact. Caveman-compressed. 1-2 sentences. |
+| `memory_type` | TEXT | `'fact'` | Enum: `fact`, `preference`, `procedure`, `context`, `episode`. **Validated in Python (`MemoryType` Literal), not at the DB layer**. No CHECK on this column. |
 | `tier` | TEXT | `'durable'` | `durable` (long-term) or `scratch` (transient). DB-enforced via CHECK. |
 | `project` | TEXT | NULL | Free-form scope. NULL = global memory. |
-| `conversation_id` | TEXT | NULL | FK → `conversations.id`. NULL = unscoped. **REFERENCES is documentary only — see [FK enforcement](#foreign-key-enforcement).** |
+| `conversation_id` | TEXT | NULL | FK → `conversations.id`. NULL = unscoped. **REFERENCES is documentary only; see [FK enforcement](#foreign-key-enforcement).** |
 | `tags` | TEXT | NULL | JSON-encoded `list[str]`. NULL = no tags. Decoded by `parse_tags`. |
 | `created_at` | TEXT | `datetime('now')` | ISO-8601 UTC, `YYYY-MM-DD HH:MM:SS`. Used by recency scoring. |
 | `updated_at` | TEXT | `datetime('now')` | Bumped by `db.update`. Not used in scoring today. |
@@ -147,13 +147,13 @@ instead.
 CREATE INDEX IF NOT EXISTS idx_memories_expires_tier ON memories(expires_at, tier);
 ```
 
-- `idx_memories_expires_tier` — the `(expires_at, tier)` leading-column
+- `idx_memories_expires_tier`: the `(expires_at, tier)` leading-column
   order speeds up `sweep_expired` and the lazy expiry filter.
 
 Built in `migrate_memories_table`, not in `SCHEMA`: on pre-tier DBs the
 `expires_at` / `tier` columns don't exist when `SCHEMA` runs, so the index
 is created after the `ALTER TABLE`s. The same migration drops two obsolete
-indexes from earlier scratch-tier work — `idx_memories_tier_expires` (its
+indexes from earlier scratch-tier work: `idx_memories_tier_expires` (its
 `(tier, expires_at)` order was useless for sweep) and `idx_memories_conv_tier`
 (never used by any query).
 
@@ -162,9 +162,9 @@ indexes from earlier scratch-tier work — `idx_memories_tier_expires` (its
 | Tier | Default | TTL | Visible to |
 |---|---|---|---|
 | `durable` | yes | none | search, timeline, topics, build_context.memories |
-| `scratch` | only via `memory_store_scratch` | required (`expires_at`) | same — but expired rows hidden by lazy filter, hard-deleted by `sweep_expired` |
+| `scratch` | only via `memory_store_scratch` | required (`expires_at`) | same, but expired rows hidden by lazy filter and hard-deleted by `sweep_expired` |
 
-The two axes — `memory_type` (semantic) and `tier` (lifecycle) — are
+The two axes, `memory_type` (semantic) and `tier` (lifecycle), are
 intentionally orthogonal. A `scratch` row can be any `memory_type`. A
 `durable` row never has `expires_at`.
 
@@ -180,7 +180,7 @@ Raw access (`get`, `memory_health`, `memory_conflicts`,
 
 ---
 
-### `conversations` — session container
+### `conversations` (session container)
 
 ```sql
 CREATE TABLE IF NOT EXISTS conversations (
@@ -196,7 +196,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 
 | Column | Type | Default | Notes |
 |---|---|---|---|
-| `id` | TEXT | — | 16-hex via `new_id()` |
+| `id` | TEXT | none | 16-hex via `new_id()` |
 | `title` | TEXT | NULL | Human label |
 | `project` | TEXT | NULL | Inherited by attached memories' query scope, but not enforced. |
 | `started_at` | TEXT | `datetime('now')` | Used by `conversation_threads` ORDER BY and by `conversation_stale` when no memories exist yet. |
@@ -211,7 +211,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 
 ---
 
-### `conversation_links` — conversation graph
+### `conversation_links` (conversation graph)
 
 ```sql
 CREATE TABLE IF NOT EXISTS conversation_links (
@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS conversation_links (
 ```
 
 Directed graph between conversations. `(from_id, to_id, relation)` is
-the natural key — same pair with two relations is allowed.
+the natural key, so the same pair with two relations is allowed.
 
 **Relations**
 
@@ -242,7 +242,7 @@ the natural key — same pair with two relations is allowed.
 
 ---
 
-### `memory_links` — memory graph
+### `memory_links` (memory graph)
 
 ```sql
 CREATE TABLE IF NOT EXISTS memory_links (
@@ -261,7 +261,7 @@ Directed graph between memories.
 
 | Relation | Meaning | Effect on search |
 |---|---|---|
-| `supersedes` | `from_id` is the new version of `to_id` | `to_id` is excluded from search results — see [supersession](#supersession). `from_id` is visible. |
+| `supersedes` | `from_id` is the new version of `to_id` | `to_id` is excluded from search results (see [supersession](#supersession)). `from_id` is visible. |
 | `contradicts` | A and B claim incompatible state | Surfaced by `memory_conflicts`; both still visible in search. |
 | `related_to` | Free association | No effect on search; surfaced by `memory_related`. |
 
@@ -275,7 +275,7 @@ Directed graph between memories.
 
 ---
 
-### `project_config` — per-project scoring overrides
+### `project_config` (per-project scoring overrides)
 
 ```sql
 CREATE TABLE IF NOT EXISTS project_config (
@@ -288,7 +288,7 @@ CREATE TABLE IF NOT EXISTS project_config (
 
 Keyspace today: `w_fts`, `w_vec`, `w_recency`, `half_life`. Values are
 stored as TEXT and coerced to float by Pydantic in
-`SqliteDatabase.resolve_weights`. No DB-level enum on `key` —
+`SqliteDatabase.resolve_weights`. No DB-level enum on `key`;
 validation happens in `memory_set_config`.
 
 Precedence chain in `resolve_weights` (highest first):
@@ -296,13 +296,13 @@ Precedence chain in `resolve_weights` (highest first):
 1. Per-call overrides on `search` / `build_context`
 2. Project config (this table)
 3. File config from `.rekal/config.yml`
-4. `ScoringWeights` field defaults — `0.4 / 0.4 / 0.2 / 30.0`
+4. `ScoringWeights` field defaults: `0.4 / 0.4 / 0.2 / 30.0`
 
 ---
 
 ## Virtual tables
 
-### `memories_fts` — FTS5 full-text index
+### `memories_fts` (FTS5 full-text index)
 
 ```sql
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -339,13 +339,13 @@ WHERE memories_fts MATCH ?
 ORDER BY memories_fts.rank
 ```
 
-Queries are sanitized via `quote_fts` — every token wrapped in
-phrase-quotes — so user input is treated literally and never as FTS5
+Queries are sanitized via `quote_fts`, which wraps every token in
+phrase-quotes, so user input is treated literally and never as FTS5
 operators.
 
 ---
 
-### `memory_vec` — sqlite-vec dense index
+### `memory_vec` (sqlite-vec dense index)
 
 ```sql
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(
@@ -363,12 +363,12 @@ DB.
 Unlike FTS, there is **no trigger** on `memory_vec`. Maintenance is
 explicit in Python:
 
-- `db.store` — `INSERT INTO memory_vec` after embedding.
-- `db.update` — `UPDATE memory_vec SET embedding = ?` if content
+- `db.store`: `INSERT INTO memory_vec` after embedding.
+- `db.update`: `UPDATE memory_vec SET embedding = ?` if content
   changed.
-- `db.delete`, `db.prune`, `db.sweep_expired` — `DELETE FROM
+- `db.delete`, `db.prune`, `db.sweep_expired`: `DELETE FROM
   memory_vec` before deleting from `memories`.
-- `db.supersede` — inserts new row; old row's vector stays (it's
+- `db.supersede`: inserts new row; old row's vector stays (it's
   filtered out at query time, not deleted).
 
 This is the most failure-prone seam in the schema. Any new method that
@@ -390,7 +390,7 @@ filters get applied in Python.
 
 ---
 
-## Triggers — full list
+## Triggers (full list)
 
 | Trigger | When | Effect |
 |---|---|---|
@@ -398,7 +398,7 @@ filters get applied in Python.
 | `memories_ad` | AFTER DELETE ON memories | INSERT delete-cmd into `memories_fts` |
 | `memories_au` | AFTER UPDATE ON memories | delete + re-insert into `memories_fts` |
 
-There are intentionally no triggers on `memory_vec` — see above.
+There are intentionally no triggers on `memory_vec` (see above).
 
 ---
 
@@ -413,7 +413,7 @@ enforcement**.
 **Implications**
 
 - An orphaned `memories.conversation_id` will not raise.
-- Deleting a `memories` row used by `memory_links` will not cascade —
+- Deleting a `memories` row used by `memory_links` will not cascade.
   Python code in `db.delete` / `db.prune` / `db.sweep_expired` does
   the cascade explicitly.
 - A bug in cascade logic shows up as dangling rows, not as a
@@ -429,17 +429,17 @@ schema.
 
 There is no migration framework. Two strategies coexist:
 
-1. **Idempotent CREATEs** — every `CREATE TABLE` / `CREATE INDEX` /
+1. **Idempotent CREATEs.** Every `CREATE TABLE` / `CREATE INDEX` /
    `CREATE TRIGGER` is `IF NOT EXISTS`. Running the schema on an
    existing DB is a no-op.
 
-2. **`migrate_memories_table`** — for new columns and index churn on the
+2. **`migrate_memories_table`.** For new columns and index churn on the
    existing `memories` table. Reads `PRAGMA table_info(memories)` and runs
    `ALTER TABLE … ADD COLUMN` for any missing columns (currently `tier` and
    `expires_at`), then `DROP INDEX IF EXISTS` for the two obsolete indexes
    (`idx_memories_tier_expires`, `idx_memories_conv_tier`) and `CREATE INDEX
    IF NOT EXISTS idx_memories_expires_tier`. Idempotent. It does **not** add
-   the table-level CHECK to old DBs — SQLite has no `ADD CHECK`.
+   the table-level CHECK to old DBs. SQLite has no `ADD CHECK`.
 
 Both run unconditionally inside `SqliteDatabase.create`. Cost on a
 migrated DB is one PRAGMA + zero ALTERs.
@@ -521,29 +521,29 @@ containing `id`.
 | Scratch memories have non-NULL `expires_at` | **DB-enforced** on new DBs via `CHECK (tier = 'durable' OR expires_at IS NOT NULL)`. DBs migrated from before the constraint rely on the `memory_store_scratch` guard, since SQLite has no `ALTER TABLE … ADD CHECK`. |
 | Tags are JSON-encoded `list[str]` | `db.store` / `db.update` JSON-encode; `parse_tags` decodes. Bad JSON falls back to `[]`. |
 | Vector dim matches `memory_vec` declaration | `FastEmbedder.dimensions` passed to `SqliteDatabase.create`. Mismatch → vec0 raises at insert. |
-| Timestamps are `'YYYY-MM-DD HH:MM:SS'` UTC strings | `now_utc()`. Compared lexicographically — works because format is fixed-width. |
+| Timestamps are `'YYYY-MM-DD HH:MM:SS'` UTC strings | `now_utc()`. Compared lexicographically, which works because the format is fixed-width. |
 | All SQL strings are static literals | `AGENTS.md` rule, not enforced by tooling. No f-strings, no concatenation, no `%` formatting on SQL. Only parameterized `?`. |
 
 ---
 
 ## Known weaknesses
 
-- **FK enforcement off** — orphans possible if a code path forgets to
+- **FK enforcement off**: orphans possible if a code path forgets to
   cascade.
-- **No DB-level CHECK on `memory_type`** — relies on Pydantic at the
+- **No DB-level CHECK on `memory_type`**: relies on Pydantic at the
   edge.
-- **`conversations.metadata` is unused** — placeholder for future use.
-- **Legacy DBs can hold scratch rows without `expires_at`** — new DBs
+- **`conversations.metadata` is unused**: placeholder for future use.
+- **Legacy DBs can hold scratch rows without `expires_at`**: new DBs
   block this via a table CHECK, but DBs migrated from before the
   constraint can't get it (`ALTER TABLE … ADD CHECK` is unsupported) and
   rely on the `memory_store_scratch` guard.
-- **No `ON DELETE CASCADE`** — every cascading delete is hand-written.
-- **`memory_vec` has no trigger** — every memory mutation must
+- **No `ON DELETE CASCADE`**: every cascading delete is hand-written.
+- **`memory_vec` has no trigger**: every memory mutation must
   remember to update the vec table. Bug-prone.
-- **No schema version** — we rely on `IF NOT EXISTS` + idempotent
+- **No schema version**: we rely on `IF NOT EXISTS` + idempotent
   ALTER. Works today; a real migration framework
   (`PRAGMA user_version` + a runner) would scale better.
-- **Recency uses `created_at` only** — `updated_at` and
+- **Recency uses `created_at` only**: `updated_at` and
   `last_accessed_at` are recorded but ignored by scoring.
 
 ---

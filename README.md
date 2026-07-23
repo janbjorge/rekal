@@ -4,9 +4,9 @@
 
 rekal is an [MCP](https://modelcontextprotocol.io) server that gives AI coding agents persistent memory across sessions. Memories are stored locally in SQLite and retrieved with hybrid search (BM25 keywords + vector semantics + recency decay). Nothing leaves your machine.
 
-[How it works](#how-it-works) · [Quickstart](#quickstart-claude-code) · [Install](#install) · [Setup](#setup--claude-code) · [Updating](#updating) · [Tools](#tools) · [Under the hood](#under-the-hood) · [Troubleshooting](#troubleshooting--claude-code)
+[How it works](#how-it-works) · [Quickstart](#quickstart-claude-code) · [Install](#install) · [Setup](#setup-for-claude-code) · [Updating](#updating) · [Tools](#tools) · [Under the hood](#under-the-hood) · [Troubleshooting](#troubleshooting-for-claude-code)
 
-Works with any MCP-capable agent: [Claude Code](#setup--claude-code), [Codex CLI](#setup--codex-cli), [OpenCode](#setup--opencode).
+Works with any MCP-capable agent: [Claude Code](#setup-for-claude-code), [Codex CLI](#setup-for-codex-cli), [OpenCode](#setup-for-opencode).
 
 ```
 Session 1:   "I prefer Ruff over Black"  → memory_store(...)
@@ -17,9 +17,9 @@ Session 47:  "Set up linting"            → memory_search("formatting preferenc
 
 ## How it works
 
-1. **Store** — the agent saves a durable fact with `memory_store`: a preference, a decision, a non-obvious discovery.
-2. **Index** — rekal writes it to SQLite and builds two indexes over it: a BM25 keyword index and a 384-dimensional vector embedding, both computed locally with no network calls.
-3. **Recall** — in a later session the agent calls `memory_search` (or `memory_build_context`). rekal blends keyword match, semantic similarity, and recency into a single score and returns the top hits.
+1. **Store.** The agent saves a durable fact with `memory_store`: a preference, a decision, a non-obvious discovery.
+2. **Index.** rekal writes it to SQLite and builds two indexes over it: a BM25 keyword index and a 384-dimensional vector embedding, both computed locally with no network calls.
+3. **Recall.** In a later session the agent calls `memory_search` (or `memory_build_context`). rekal blends keyword match, semantic similarity, and recency into a single score and returns the top hits.
 
 All state is a single file: `~/.rekal/memory.db`. No daemon, no cloud, no API keys. For the scoring formula, schema, and embedding model, see [Under the hood](#under-the-hood).
 
@@ -46,26 +46,26 @@ uv tool install rekal
 
 Requires Python 3.11+. On first run, rekal creates `~/.rekal/memory.db`. To upgrade an existing install later, see [Updating](#updating).
 
-## Setup — Claude Code
+## Setup for Claude Code
 
 Three steps: add the MCP server, install the plugin, and disable built-in memory.
 
-**1. Add the MCP server** — gives Claude Code the memory tools:
+**1. Add the MCP server.** This gives Claude Code the memory tools:
 
 ```bash
 claude mcp add --scope user rekal -- rekal
 ```
 
-`--scope user` registers rekal for all your projects. Without it, `claude mcp add` defaults to local scope and the server loads only in the project where you ran it ([MCP scopes](https://code.claude.com/docs/en/mcp#mcp-installation-scopes)) — memory should follow you everywhere. The `--` separates Claude Code's own flags from the command that launches the server; stdio is the default transport.
+`--scope user` registers rekal for all your projects. Without it, `claude mcp add` defaults to local scope and the server loads only in the project where you ran it ([MCP scopes](https://code.claude.com/docs/en/mcp#mcp-installation-scopes)), and memory should follow you everywhere. The `--` separates Claude Code's own flags from the command that launches the server; stdio is the default transport.
 
-**2. Install the plugin** — teaches Claude Code when to use those tools, and prevents conflicts with built-in memory:
+**2. Install the plugin.** This teaches Claude Code when to use those tools and prevents conflicts with built-in memory:
 
 ```bash
 claude plugin marketplace add janbjorge/rekal
 claude plugin install rekal-skills@rekal
 ```
 
-**3. Disable built-in auto memory** — add `"autoMemoryEnabled": false` to `~/.claude/settings.json`:
+**3. Disable built-in auto memory.** Add `"autoMemoryEnabled": false` to `~/.claude/settings.json`:
 
 ```json
 {
@@ -80,21 +80,21 @@ claude plugin install rekal-skills@rekal
 
 **What if I forget?** The plugin's `block-memory-writes` and `redirect-memory-reads` hooks catch flat-file memory access (MEMORY.md/.txt, memories.*) and redirect the agent to rekal as a safety net, but it wastes turns hitting them. Disabling auto memory is cleaner.
 
-**Can the plugin do this automatically?** No — Claude Code only lets a plugin's `settings.json` set the `agent` and `subagentStatusLine` keys ([plugin settings](https://code.claude.com/docs/en/plugins)); it cannot touch `autoMemoryEnabled`. This manual step is the only way.
+**Can the plugin do this automatically?** No. Claude Code only lets a plugin's `settings.json` set the `agent` and `subagentStatusLine` keys ([plugin settings](https://code.claude.com/docs/en/plugins)); it cannot touch `autoMemoryEnabled`. This manual step is the only way.
 
 </details>
 
 <details>
-<summary><b>What the plugin provides</b> — hooks and skills</summary>
+<summary><b>What the plugin provides</b>: hooks and skills</summary>
 
 **Hooks** (automatic, no user action needed):
 
 | Hook | Event | What it does |
 |------|-------|-------------|
 | session-start | `SessionStart` | Reminds agent to call `memory_build_context` before doing anything |
-| user-prompt-submit | `UserPromptSubmit` | Re-asserts rekal as the memory system every turn — stops the agent drifting back to file-based memory as context grows |
+| user-prompt-submit | `UserPromptSubmit` | Re-asserts rekal as the memory system every turn, stopping the agent from drifting back to file-based memory as context grows |
 | block-memory-writes | `PreToolUse` on Edit/Write | Denies writes to flat-file memory (MEMORY.md/.txt, memories.*) with a reason redirecting to rekal tools |
-| redirect-memory-reads | `PreToolUse` on Read | Denies reads of flat-file memory and tells the agent to call `memory_build_context` instead — a missing file no longer reads as "no memory exists" |
+| redirect-memory-reads | `PreToolUse` on Read | Denies reads of flat-file memory and tells the agent to call `memory_build_context` instead, so a missing file no longer reads as "no memory exists" |
 
 **Skills** (user-invocable):
 
@@ -103,13 +103,13 @@ claude plugin install rekal-skills@rekal
 | `rekal-init` | `/rekal-init` | Scans codebase and bootstraps rekal with project knowledge |
 | `rekal-save` | `/rekal-save` or auto on session end | Deduplicates and stores durable knowledge from the conversation |
 | `rekal-usage` | `/rekal-usage` | Teaches agents how to use rekal effectively |
-| `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, stale data — proposes fixes |
+| `rekal-hygiene` | `/rekal-hygiene` | Finds conflicts, duplicates, and stale data, then proposes fixes |
 
 </details>
 
-## Setup — Codex CLI
+## Setup for Codex CLI
 
-One step. rekal is a standard MCP stdio server — no plugin system, no competing memory to disable ([Codex memories are off by default](https://developers.openai.com/codex/memories)).
+One step. rekal is a standard MCP stdio server, with no plugin system and no competing memory to disable ([Codex memories are off by default](https://developers.openai.com/codex/memories)).
 
 Add to `~/.codex/config.toml` ([Codex MCP docs](https://developers.openai.com/codex/mcp)):
 
@@ -140,7 +140,7 @@ memories = false
 
 </details>
 
-## Setup — OpenCode
+## Setup for OpenCode
 
 One step. OpenCode has no built-in memory system, so rekal plugs in cleanly with no conflicts.
 
@@ -209,9 +209,9 @@ rekal exposes 21 MCP tools across four categories. The three you'll use most:
 | `memory_build_context` | One call returning durable + scratch memories, conflicts, and timeline |
 
 <details>
-<summary><b>All 21 tools</b> — core, smart write, introspection, conversations</summary>
+<summary><b>All 21 tools</b>: core, smart write, introspection, conversations</summary>
 
-**Core** — read and write memories:
+**Core** (read and write memories):
 
 | Tool | Purpose |
 |------|---------|
@@ -224,7 +224,7 @@ rekal exposes 21 MCP tools across four categories. The three you'll use most:
 | `memory_set_project` | Set the default project for the current session |
 | `memory_set_config` | Persist per-project scoring weights (`w_fts`, `w_vec`, `w_recency`, `half_life`) |
 
-**Smart write** — manage knowledge over time:
+**Smart write** (manage knowledge over time):
 
 | Tool | Purpose |
 |------|---------|
@@ -232,7 +232,7 @@ rekal exposes 21 MCP tools across four categories. The three you'll use most:
 | `memory_link` | Connect memories: `supersedes`, `contradicts`, or `related_to` |
 | `memory_build_context` | One call returning durable + scratch memories (per-tier budgets), conflicts, and timeline |
 
-**Introspection** — explore what's stored:
+**Introspection** (explore what's stored):
 
 | Tool | Purpose |
 |------|---------|
@@ -243,7 +243,7 @@ rekal exposes 21 MCP tools across four categories. The three you'll use most:
 | `memory_health` | Database stats: counts by type, project, date range |
 | `memory_conflicts` | Find memories that contradict each other |
 
-**Conversations** — track session threads:
+**Conversations** (track session threads):
 
 | Tool | Purpose |
 |------|---------|
@@ -260,9 +260,9 @@ rekal exposes 21 MCP tools across four categories. The three you'll use most:
 
 Everything lives in `~/.rekal/memory.db`. Three subsystems share it:
 
-- **memories table** — content, type, project, tags, timestamps, access counts, plus `tier` (`durable` or `scratch`) and optional `expires_at`
-- **FTS5 virtual table** — full-text index over content+tags+project, auto-synced via triggers
-- **sqlite-vec virtual table** — 384-dimensional vector index for semantic search
+- **memories table**: content, type, project, tags, timestamps, access counts, plus `tier` (`durable` or `scratch`) and optional `expires_at`
+- **FTS5 virtual table**: full-text index over content+tags+project, auto-synced via triggers
+- **sqlite-vec virtual table**: 384-dimensional vector index for semantic search
 
 Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_supersede` writes the new memory and creates a `supersedes` link in a single operation, so old knowledge stays queryable with explicit lineage.
 
@@ -281,11 +281,11 @@ One table does the work; everything else hangs off it.
 | `conversations` + `conversation_links` | session threads and their graph |
 | `project_config` | per-project scoring-weight overrides |
 
-A memory has three orthogonal axes: **type** (fact / preference / procedure / context / episode), **tier** (durable, or scratch with a TTL), and **links** (the graph). The full schema — every column, trigger, foreign-key note, and query lifecycle — lives in [docs/data-model.md](docs/data-model.md).
+A memory has three orthogonal axes: **type** (fact / preference / procedure / context / episode), **tier** (durable, or scratch with a TTL), and **links** (the graph). The full schema, covering every column, trigger, foreign-key note, and query lifecycle, lives in [docs/data-model.md](docs/data-model.md).
 
 ### Embeddings
 
-rekal uses [fastembed](https://github.com/qdrant/fastembed) with `BAAI/bge-small-en-v1.5` (384 dimensions). Runs locally via ONNX — no API calls, no network. The model downloads once on first use (~50MB) and is cached.
+rekal uses [fastembed](https://github.com/qdrant/fastembed) with `BAAI/bge-small-en-v1.5` (384 dimensions). Runs locally via ONNX, with no API calls and no network. The model downloads once on first use (~50MB) and is cached.
 
 ### Search
 
@@ -300,15 +300,15 @@ score = w_fts × sigmoid(-BM25)                       ← keyword relevance    (
 **Why three signals?** Keywords miss synonyms ("deploy" vs "ship to prod"). Vectors miss exact identifiers. Recency alone buries important old knowledge. The blend covers all three failure modes.
 
 <details>
-<summary><b>Configurable weights</b> — four resolution layers + <code>.rekal/config.yml</code></summary>
+<summary><b>Configurable weights</b>: four resolution layers + <code>.rekal/config.yml</code></summary>
 
 All weights and half-life are configurable at four levels:
 
 | Priority | Source | Set by | Persists? |
 |----------|--------|--------|-----------|
-| 1 (highest) | Per-search params | `memory_search(..., w_fts=0.8)` | No — single query only |
-| 2 | Database project config | `memory_set_config(key, value, project)` | Yes — SQLite, across sessions |
-| 3 | `.rekal/config.yml` | Checked into version control | Yes — shared with team |
+| 1 (highest) | Per-search params | `memory_search(..., w_fts=0.8)` | No, single query only |
+| 2 | Database project config | `memory_set_config(key, value, project)` | Yes, in SQLite across sessions |
+| 3 | `.rekal/config.yml` | Checked into version control | Yes, shared with team |
 | 4 (lowest) | Hardcoded defaults | Built into rekal | Always: 0.4 / 0.4 / 0.2, 30-day half-life |
 
 Layers resolve per-key independently. A `.rekal/config.yml` setting `w_fts` and a DB override for `half_life` combine, and each key uses its highest-priority source.
@@ -324,17 +324,17 @@ scoring:
 
 </details>
 
-Full ranking reference — normalization, candidate retrieval, weight resolution, and a tuning guide — in [docs/scoring.md](docs/scoring.md).
+Full ranking reference, covering normalization, candidate retrieval, weight resolution, and a tuning guide, is in [docs/scoring.md](docs/scoring.md).
 
 ### Why SQLite?
 
-- **Single file** — copy, back up, version-control, or delete to start fresh
-- **Zero config** — no daemon, no port, no connection string
-- **FTS5 built-in** — BM25 ranking without an external search engine
-- **sqlite-vec extension** — vector search in the same process, no separate vector DB
-- **Sub-millisecond** — local disk I/O, no network round-trips
+- **Single file**: copy, back up, version-control, or delete to start fresh
+- **Zero config**: no daemon, no port, no connection string
+- **FTS5 built-in**: BM25 ranking without an external search engine
+- **sqlite-vec extension**: vector search in the same process, no separate vector DB
+- **Sub-millisecond**: local disk I/O, no network round-trips
 
-## Troubleshooting — Claude Code
+## Troubleshooting for Claude Code
 
 ### Agent still writes to MEMORY.md
 
