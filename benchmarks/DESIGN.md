@@ -68,8 +68,13 @@ Notes:
   dir is what gives the clean baseline instead.
 - warm arms layer on rekal: `--mcp-config` (`rekal mcp`) + `--settings
   config/warm/hooks.json` wiring SessionStart/UserPromptSubmit →
-  `rekal hook <event>` (reads `REKAL_DB_PATH` from the run's env). Store
-  OFF in measured runs.
+  `rekal hook <event>` (reads `REKAL_DB_PATH` from the run's env).
+- Store is OFF in measured runs, enforced at the allowlist: measured warm
+  arms only get `memory_build_context` + `memory_search`, never
+  `memory_store`. The rekal MCP system prompt nudges the agent to store as
+  it works, so leaving store merely unrequested isn't enough — a stray
+  write would burn a turn (and fail against the frozen seed) and inflate
+  the warm arm. Only `learn` exposes `memory_store`, to build the seed DB.
 - Seed DB built once by a curated learn pass, then FROZEN (chmod 0o444)
   per run so stray writes can't mutate it.
 - Auth: headless `claude -p` needs a logged-in config dir. Authenticate
