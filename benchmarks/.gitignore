@@ -1,0 +1,7 @@
+# Cloned target repos (large, pinned by commit in DESIGN.md — re-clone, don't commit)
+repos/
+# Generated benchmark state
+dbs/
+results/
+config/
+*.jsonl

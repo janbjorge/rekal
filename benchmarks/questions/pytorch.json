@@ -1,0 +1,62 @@
+[
+  {
+    "pair": "dispatcher",
+    "subsystem": "Dispatcher (aten/src/ATen/core/dispatch, c10)",
+    "seed": "How does PyTorch's dispatcher route an operator call to the right kernel? Explain DispatchKey and the dispatch key set.",
+    "heldout": "How are per-backend (CPU/CUDA/Autograd) kernels registered with the dispatcher and how is the resolved kernel cached?"
+  },
+  {
+    "pair": "op-registration",
+    "subsystem": "ATen op registration (aten/src/ATen/native/native_functions.yaml)",
+    "seed": "How are ATen operators declared in native_functions.yaml and how does codegen turn a YAML entry into a callable op?",
+    "heldout": "How do you add a new native operator with CPU and CUDA implementations — which files and codegen steps are involved?"
+  },
+  {
+    "pair": "autograd-engine",
+    "subsystem": "Autograd engine (torch/csrc/autograd/)",
+    "seed": "How does PyTorch's autograd engine build the backward graph? Explain Node, edge_list, and the executed backward order.",
+    "heldout": "How does the autograd engine parallelize backward across devices/threads and handle ready-queue scheduling?"
+  },
+  {
+    "pair": "tensorimpl",
+    "subsystem": "TensorImpl / Storage (c10/core/TensorImpl.h, Storage)",
+    "seed": "How is a torch.Tensor represented at the C++ level? Explain TensorImpl, Storage, and how sizes/strides/offset describe a view.",
+    "heldout": "How does an in-place view operation (e.g. narrow, as_strided) share storage while updating version counters for autograd correctness?"
+  },
+  {
+    "pair": "dynamo",
+    "subsystem": "TorchDynamo (torch/_dynamo/)",
+    "seed": "How does TorchDynamo trace Python bytecode into an FX graph? What are guards and why are they needed?",
+    "heldout": "What causes a Dynamo graph break, and how does Dynamo recompile when a guard fails?"
+  },
+  {
+    "pair": "inductor",
+    "subsystem": "TorchInductor (torch/_inductor/)",
+    "seed": "How does TorchInductor lower an FX graph to fused kernels? What IR does it use before codegen?",
+    "heldout": "How does Inductor decide fusion and generate a Triton kernel for a pointwise+reduction sequence?"
+  },
+  {
+    "pair": "cuda-allocator",
+    "subsystem": "CUDA caching allocator (c10/cuda/CUDACachingAllocator.cpp)",
+    "seed": "How does PyTorch's CUDA caching allocator manage GPU memory? Explain blocks, pools, and stream awareness.",
+    "heldout": "How does the caching allocator handle fragmentation and when does it call cudaFree / return memory to the driver?"
+  },
+  {
+    "pair": "fx",
+    "subsystem": "torch.fx (torch/fx/)",
+    "seed": "How does torch.fx represent a captured module as a Graph? Explain Node, opcode types, and symbolic_trace.",
+    "heldout": "How do you write an fx graph transformation/pass that rewrites nodes, and how is the transformed graph recompiled into a GraphModule?"
+  },
+  {
+    "pair": "distributed-ddp",
+    "subsystem": "DistributedDataParallel / c10d (torch/distributed/)",
+    "seed": "How does DistributedDataParallel synchronize gradients across processes? Explain the reducer and gradient buckets.",
+    "heldout": "How does DDP overlap the allreduce communication with the backward pass, and how are buckets formed and ordered?"
+  },
+  {
+    "pair": "dataloader",
+    "subsystem": "DataLoader (torch/utils/data/)",
+    "seed": "How does PyTorch's DataLoader implement multi-process data loading? Explain workers, the index queue, and prefetching.",
+    "heldout": "How does the DataLoader handle worker seeding, sharding of samples across workers, and clean shutdown of worker processes?"
+  }
+]

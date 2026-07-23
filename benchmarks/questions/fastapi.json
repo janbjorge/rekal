@@ -1,0 +1,62 @@
+[
+  {
+    "pair": "dependency-injection",
+    "subsystem": "Dependency injection (fastapi/dependencies/utils.py)",
+    "seed": "How does FastAPI resolve and inject dependencies for a route? Explain Depends, the dependency graph, and per-request caching.",
+    "heldout": "How does FastAPI handle dependencies declared with `yield` (setup/teardown) and nested sub-dependencies during a request?"
+  },
+  {
+    "pair": "routing",
+    "subsystem": "Routing (fastapi/routing.py)",
+    "seed": "How does FastAPI's APIRouter register a path operation and build the ASGI request handler for it?",
+    "heldout": "How does include_router merge one router into another — how are prefix, tags, and dependencies propagated to the child routes?"
+  },
+  {
+    "pair": "param-declaration",
+    "subsystem": "Parameter declaration (fastapi/params.py, dependencies/utils.py)",
+    "seed": "How does FastAPI decide whether a path-operation function parameter comes from the path, query, body, header, or cookie?",
+    "heldout": "How does FastAPI assemble a single request-body model when a route declares multiple body parameters?"
+  },
+  {
+    "pair": "pydantic-compat",
+    "subsystem": "Pydantic v1/v2 compat (fastapi/_compat/)",
+    "seed": "How does FastAPI's _compat layer support both Pydantic v1 and v2? What does it abstract over?",
+    "heldout": "How does FastAPI turn a Pydantic/pydantic-core validation error into an HTTP 422 response body?"
+  },
+  {
+    "pair": "openapi",
+    "subsystem": "OpenAPI generation (fastapi/openapi/utils.py)",
+    "seed": "How does FastAPI generate the OpenAPI schema from the route table and the declared Pydantic models?",
+    "heldout": "How does FastAPI emit JSON Schema for model fields and dedupe shared models into components/schemas?"
+  },
+  {
+    "pair": "serialization",
+    "subsystem": "Response serialization (fastapi/encoders.py)",
+    "seed": "How does jsonable_encoder convert arbitrary return values (models, datetimes, enums) into JSON-safe data?",
+    "heldout": "How does FastAPI apply response_model validation and field filtering to a route's return value?"
+  },
+  {
+    "pair": "security",
+    "subsystem": "Security utilities (fastapi/security/oauth2.py, base.py)",
+    "seed": "How do FastAPI security classes like OAuth2PasswordBearer work as dependencies to extract credentials from a request?",
+    "heldout": "How does a declared security scheme get reflected into the OpenAPI schema as a securityScheme?"
+  },
+  {
+    "pair": "concurrency",
+    "subsystem": "Concurrency / background (fastapi/concurrency.py, background.py)",
+    "seed": "How does FastAPI run a synchronous path-operation function without blocking the event loop?",
+    "heldout": "How does FastAPI run BackgroundTasks after the response has been sent?"
+  },
+  {
+    "pair": "request-response",
+    "subsystem": "Request/response handling (fastapi/routing.py, responses.py)",
+    "seed": "How does FastAPI read and parse the request body (JSON, form, file) before validation?",
+    "heldout": "How does FastAPI select and construct the Response object, including a route's custom response_class?"
+  },
+  {
+    "pair": "exception-handling",
+    "subsystem": "Exception handling (fastapi/exception_handlers.py, exceptions.py)",
+    "seed": "How does FastAPI register and dispatch exception handlers? Contrast HTTPException with RequestValidationError.",
+    "heldout": "How does the AsyncExitStack middleware coordinate dependency teardown with exception handling?"
+  }
+]
