@@ -1,5 +1,5 @@
 {
-  "description": "rekal memory hooks: redirect built-in memory to rekal, load context at session start",
+  "description": "rekal deterministic memory: inject real recall on session start + each turn, auto-persist before compaction and at session end, and redirect file-based memory to rekal",
   "hooks": {
     "SessionStart": [
       {
@@ -17,6 +17,31 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/user-prompt-submit.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "agent",
+            "timeout": 120,
+            "statusMessage": "rekal: persisting memory before compaction",
+            "prompt": "Context is about to be compacted — persist durable knowledge to rekal NOW so nothing is lost. Procedure (the rekal-save skill has the full version if available): 1) Review the transcript and extract durable candidates: preferences with reasons, architecture/conventions, decisions and why, procedures, non-obvious bug root causes, behavior corrections. Skip transient state, trivially re-discoverable facts, vague platitudes, and secrets/keys/tokens (never store secrets). 2) Distill and compress each to a self-contained 1-2 sentence fact. 3) For each, call mcp__rekal__memory_search first; if the same topic already exists call mcp__rekal__memory_supersede, otherwise mcp__rekal__memory_store with a memory_type and 2-4 specific tags. Two memories about one topic must never coexist. 4) Produce NO user-facing output. Transcript: $ARGUMENTS"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "timeout": 120,
+            "statusMessage": "rekal: persisting memory at session end",
+            "prompt": "The session is ending — persist durable knowledge to rekal NOW so nothing is lost. Procedure (the rekal-save skill has the full version if available): 1) Review the transcript and extract durable candidates: preferences with reasons, architecture/conventions, decisions and why, procedures, non-obvious bug root causes, behavior corrections. Skip transient state, trivially re-discoverable facts, vague platitudes, and secrets/keys/tokens (never store secrets). 2) Distill and compress each to a self-contained 1-2 sentence fact. 3) For each, call mcp__rekal__memory_search first; if the same topic already exists call mcp__rekal__memory_supersede, otherwise mcp__rekal__memory_store with a memory_type and 2-4 specific tags. Two memories about one topic must never coexist. 4) Produce NO user-facing output. Transcript: $ARGUMENTS"
           }
         ]
       }
