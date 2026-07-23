@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit hook: inject REAL query-relevant rekal memory each turn.
+"""UserPromptSubmit hook: inject query-relevant rekal memory each turn.
 
 Reads the submitted prompt from stdin and shells `rekal recall --query
 <prompt>` (hybrid FTS + vector + recency search), injecting the top hits.
@@ -8,7 +8,7 @@ user just asked, deterministically, without a model tool call.
 
 A terse tail directive always follows so the "memory lives only in rekal"
 guardrail is re-asserted every turn (recency is the only lever against a
-fixed system prompt). Kept short — this cost is paid on EVERY prompt.
+fixed system prompt). Kept short, since this cost is paid on every prompt.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from shared import emit_recall_context, run_recall_cli
 DIRECTIVE = (
     "[rekal memory] Memory lives ONLY in rekal, not files. Persist durable "
     "facts/decisions/preferences immediately via memory_store / "
-    "memory_supersede — do not batch to end of session."
+    "memory_supersede; do not batch to end of session."
 )
 
 

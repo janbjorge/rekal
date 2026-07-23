@@ -67,7 +67,7 @@ async def run_recall(
     fmt: RecallFormat,
 ) -> None:
     # Recall must never block a session: a missing DB is not an error here
-    # (unlike health/export, which sys.exit(1)) — it renders as empty.
+    # (unlike health/export, which sys.exit(1)). It renders as empty instead.
     memories: list[MemoryResult] = []
     if Path(db_path).exists():
         embed = FastEmbedder()
@@ -75,7 +75,7 @@ async def run_recall(
         try:
             if query:
                 # Query path embeds the query and runs the durable-tier hybrid
-                # search directly — build_context would also compute scratch,
+                # search directly; build_context would also compute scratch,
                 # conflicts, and a timeline summary that injection discards.
                 weights = await db.resolve_weights(
                     project, file_config=load_file_config(find_config_file())

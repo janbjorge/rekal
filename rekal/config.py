@@ -1,4 +1,4 @@
-"""Filesystem paths and ``.rekal/config.yml`` loading — no MCP dependencies.
+"""Filesystem paths and ``.rekal/config.yml`` loading, with no MCP dependencies.
 
 Kept free of the FastMCP server so lightweight entry points (notably the
 ``rekal recall`` CLI on the per-turn hook hot path) can resolve the DB path
