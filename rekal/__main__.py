@@ -9,14 +9,16 @@ import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
-from rekal.adapters.mcp_adapter import default_db_path
 from rekal.adapters.sqlite_adapter import SqliteDatabase
+from rekal.config import default_db_path, find_config_file, load_file_config
 from rekal.embeddings import FastEmbedder
 
 if TYPE_CHECKING:
-    from rekal.models import MemoryType
+    from rekal.models import MemoryResult, MemoryType
+
+RecallFormat = Literal["text", "json"]
 
 
 def get_db_path(args: argparse.Namespace) -> str:
@@ -41,6 +43,55 @@ async def run_health(db_path: str) -> None:
         print(json.dumps(report.model_dump(), indent=2))
     finally:
         await db.close()
+
+
+def render_recall(memories: list[MemoryResult], *, project: str | None, fmt: RecallFormat) -> str:
+    """Render memories for hook injection. Empty text renders to "" (inject
+    nothing); empty JSON renders to "[]"."""
+    if fmt == "json":
+        return json.dumps([m.model_dump() for m in memories], indent=2)
+    if not memories:
+        return ""
+    scope = f" (project: {project})" if project else ""
+    lines = [f"## rekal memory{scope}"]
+    lines.extend(f"- [{m.memory_type}] {m.content} (id {m.id})" for m in memories)
+    return "\n".join(lines)
+
+
+async def run_recall(
+    db_path: str,
+    *,
+    project: str | None,
+    query: str | None,
+    limit: int,
+    fmt: RecallFormat,
+) -> None:
+    # Recall must never block a session: a missing DB is not an error here
+    # (unlike health/export, which sys.exit(1)). It renders as empty instead.
+    memories: list[MemoryResult] = []
+    if Path(db_path).exists():
+        embed = FastEmbedder()
+        db = await SqliteDatabase.create(db_path, embed)
+        try:
+            if query:
+                # Query path embeds the query and runs the durable-tier hybrid
+                # search directly; build_context would also compute scratch,
+                # conflicts, and a timeline summary that injection discards.
+                weights = await db.resolve_weights(
+                    project, file_config=load_file_config(find_config_file())
+                )
+                memories = await db.search(
+                    query, limit=limit, project=project, tier="durable", weights=weights
+                )
+            else:
+                # No query (session start): recency-ordered, no embedding load.
+                memories = await db.memory_timeline(project=project, limit=limit)
+        finally:
+            await db.close()
+
+    output = render_recall(memories, project=project, fmt=fmt)
+    if output:
+        print(output)
 
 
 async def run_export(db_path: str) -> None:
@@ -130,6 +181,17 @@ def main() -> None:
     sub.add_parser("health", help="Show database health report")
     sub.add_parser("export", help="Export all memories as JSON")
 
+    recall = sub.add_parser("recall", help="Print memories for hook context injection")
+    recall.add_argument("--project", help="Scope to this project (default: $REKAL_PROJECT)")
+    recall.add_argument("--query", help="Hybrid-search query. Omit for recency-ordered recall.")
+    recall.add_argument("--limit", type=int, default=10, help="Max memories to return")
+    recall.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text)",
+    )
+
     prune = sub.add_parser("prune", help="Bulk-delete memories by scope (project/type/age)")
     prune.add_argument("--project", help="Restrict to this project")
     prune.add_argument(
@@ -161,6 +223,16 @@ def main() -> None:
         asyncio.run(run_health(get_db_path(args)))
     elif command == "export":
         asyncio.run(run_export(get_db_path(args)))
+    elif command == "recall":
+        asyncio.run(
+            run_recall(
+                get_db_path(args),
+                project=args.project or os.environ.get("REKAL_PROJECT"),
+                query=args.query,
+                limit=args.limit,
+                fmt=args.format,
+            )
+        )
     elif command == "prune":
         asyncio.run(
             run_prune(

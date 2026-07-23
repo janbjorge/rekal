@@ -1,41 +1,45 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit hook: re-assert rekal as the memory system on every turn.
+"""UserPromptSubmit hook: inject query-relevant rekal memory each turn.
 
-SessionStart fires once; its context decays as the conversation grows and the
-agent drifts back to the (stronger, fixed) system-prompt memory behavior. This
-hook re-injects a terse directive on every user prompt, so the freshest, most
-recent instruction in context always points at rekal — recency is the only
-lever that competes with a fixed system prompt.
+Reads the submitted prompt from stdin and shells `rekal recall --query
+<prompt>` (hybrid FTS + vector + recency search), injecting the top hits.
+This is where rekal's ranking earns its keep: recall is scoped to what the
+user just asked, deterministically, without a model tool call.
 
-Kept short on purpose: this text is added to context on EVERY turn, so token
-cost is paid repeatedly.
+A terse tail directive always follows so the "memory lives only in rekal"
+guardrail is re-asserted every turn (recency is the only lever against a
+fixed system prompt). Kept short, since this cost is paid on every prompt.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 
-CONTEXT = (
-    "[rekal memory] Persistent memory lives ONLY in rekal, never in files. "
-    "There is no MEMORY.md or memory section of CLAUDE.md — do not look for, "
-    "read, or assume memory from any file; absence of a file means nothing. "
-    "To recall prior context, call memory_build_context. As durable facts, "
-    "decisions, preferences, or corrections emerge, persist them immediately "
-    "with memory_store / memory_supersede — do not batch to end of session."
+from shared import emit_recall_context, run_recall_cli
+
+DIRECTIVE = (
+    "[rekal memory] Memory lives ONLY in rekal, not files. Persist durable "
+    "facts/decisions/preferences immediately via memory_store / "
+    "memory_supersede; do not batch to end of session."
 )
 
 
+def read_prompt() -> str | None:
+    try:
+        data = json.load(sys.stdin)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    prompt = data.get("prompt")
+    return prompt if isinstance(prompt, str) and prompt else None
+
+
 def main() -> None:
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "UserPromptSubmit",
-                    "additionalContext": CONTEXT,
-                }
-            }
-        )
-    )
+    prompt = read_prompt()
+    memory = run_recall_cli(["--query", prompt, "--limit", "5"]) if prompt else None
+    emit_recall_context("UserPromptSubmit", DIRECTIVE, memory)
 
 
 if __name__ == "__main__":

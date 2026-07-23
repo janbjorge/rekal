@@ -10,10 +10,14 @@ from unittest.mock import patch
 
 import pytest
 
-from rekal.__main__ import main, run_export, run_health, run_prune
+from rekal.__main__ import main, run_export, run_health, run_prune, run_recall
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 
 from .conftest import deterministic_embed
+
+# run_recall builds its own FastEmbedder; swap it for the deterministic test
+# embedder so the query path never loads (or downloads) the real ONNX model.
+patch_embedder = patch("rekal.__main__.FastEmbedder", lambda: deterministic_embed)
 
 
 async def test_run_health(capsys: pytest.CaptureFixture[str]) -> None:
@@ -51,6 +55,113 @@ async def test_run_export(capsys: pytest.CaptureFixture[str]) -> None:
 async def test_run_export_no_db() -> None:
     with pytest.raises(SystemExit):
         await run_export("/nonexistent/path/db.sqlite")
+
+
+async def test_run_recall_timeline_json(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        db = await SqliteDatabase.create(db_path, deterministic_embed)
+        await db.store("First fact")
+        await db.store("Second fact")
+        await db.close()
+
+        await run_recall(db_path, project=None, query=None, limit=10, fmt="json")
+        data = json.loads(capsys.readouterr().out)
+        contents = {m["content"] for m in data}
+        assert contents == {"First fact", "Second fact"}
+
+
+async def test_run_recall_timeline_text(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        db = await SqliteDatabase.create(db_path, deterministic_embed)
+        await db.store("A durable fact", memory_type="fact")
+        await db.close()
+
+        await run_recall(db_path, project=None, query=None, limit=10, fmt="text")
+        out = capsys.readouterr().out
+        assert out.startswith("## rekal memory\n")
+        assert "- [fact] A durable fact (id " in out
+
+
+async def test_run_recall_query(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        db = await SqliteDatabase.create(db_path, deterministic_embed)
+        await db.store("Ruff over Black for formatting")
+        await db.close()
+
+        with patch_embedder:
+            await run_recall(db_path, project=None, query="formatting", limit=5, fmt="json")
+        data = json.loads(capsys.readouterr().out)
+        assert isinstance(data, list)
+        assert any(m["content"] == "Ruff over Black for formatting" for m in data)
+
+
+async def test_run_recall_project_scope(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        db = await SqliteDatabase.create(db_path, deterministic_embed)
+        await db.store("Scoped fact", project="acme")
+        await db.store("Other fact", project="other")
+        await db.close()
+
+        await run_recall(db_path, project="acme", query=None, limit=10, fmt="text")
+        out = capsys.readouterr().out
+        assert out.startswith("## rekal memory (project: acme)\n")
+        assert "Scoped fact" in out
+        assert "Other fact" not in out
+
+
+async def test_run_recall_empty_db_text(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        db = await SqliteDatabase.create(db_path, deterministic_embed)
+        await db.close()
+
+        await run_recall(db_path, project=None, query=None, limit=10, fmt="text")
+        assert capsys.readouterr().out == ""
+
+
+async def test_run_recall_empty_db_json(capsys: pytest.CaptureFixture[str]) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        db = await SqliteDatabase.create(db_path, deterministic_embed)
+        await db.close()
+
+        await run_recall(db_path, project=None, query=None, limit=10, fmt="json")
+        assert json.loads(capsys.readouterr().out) == []
+
+
+async def test_run_recall_missing_db_text(capsys: pytest.CaptureFixture[str]) -> None:
+    # Missing DB must NOT raise (unlike health/export) — recall degrades silently.
+    await run_recall("/nonexistent/db.sqlite", project=None, query=None, limit=10, fmt="text")
+    assert capsys.readouterr().out == ""
+
+
+async def test_run_recall_missing_db_json(capsys: pytest.CaptureFixture[str]) -> None:
+    await run_recall("/nonexistent/db.sqlite", project=None, query=None, limit=10, fmt="json")
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_main_recall(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+
+        async def setup() -> None:
+            db = await SqliteDatabase.create(db_path, deterministic_embed)
+            await db.store("Env-scoped fact", project="fromenv")
+            await db.close()
+
+        asyncio.run(setup())
+
+        # No --project flag → falls back to $REKAL_PROJECT.
+        monkeypatch.setenv("REKAL_PROJECT", "fromenv")
+        with (
+            patch_embedder,
+            patch("sys.argv", ["rekal", "--db", db_path, "recall", "--query", "fact"]),
+        ):
+            main()
 
 
 def test_main_health() -> None:

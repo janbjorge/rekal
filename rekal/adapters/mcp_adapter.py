@@ -8,48 +8,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import yaml
 from mcp.server.fastmcp import Context, FastMCP
-from pydantic import BaseModel, ValidationError
 
 from rekal.adapters.sqlite_adapter import SqliteDatabase
+
+# Re-exported: path/config helpers live in rekal.config (MCP-free) so the
+# recall CLI can use them without importing this module's FastMCP server.
+from rekal.config import default_db_path, find_config_file, load_file_config
 from rekal.embeddings import FastEmbedder
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-
-def default_db_path() -> str:
-    return str(Path.home() / ".rekal" / "memory.db")
-
-
-def find_config_file(start: Path | None = None) -> Path | None:
-    """Look for ``.rekal/config.yml`` in *start* (default: CWD)."""
-    candidate = (start or Path.cwd()).resolve() / ".rekal" / "config.yml"
-    return candidate if candidate.is_file() else None
-
-
-class FileScoring(BaseModel):
-    w_fts: float | None = None
-    w_vec: float | None = None
-    w_recency: float | None = None
-    half_life: float | None = None
-
-
-class FileConfig(BaseModel):
-    scoring: FileScoring = FileScoring()
-
-
-def load_file_config(path: Path | None = None) -> dict[str, float]:
-    """Load scoring weights from ``.rekal/config.yml``. Returns ``{}`` on any error."""
-    if path is None:
-        return {}
-    try:
-        raw = yaml.safe_load(path.read_text())
-        parsed = FileConfig.model_validate(raw)
-    except (ValidationError, yaml.YAMLError, OSError, TypeError):
-        return {}
-    return parsed.scoring.model_dump(exclude_unset=True, exclude_none=True)
 
 
 @dataclass

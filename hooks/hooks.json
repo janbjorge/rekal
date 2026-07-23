@@ -1,5 +1,5 @@
 {
-  "description": "rekal memory hooks: redirect built-in memory to rekal, load context at session start",
+  "description": "rekal deterministic memory: inject real recall on session start + each turn, auto-persist before compaction and at session end, and redirect file-based memory to rekal",
   "hooks": {
     "SessionStart": [
       {
@@ -17,6 +17,31 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/user-prompt-submit.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "agent",
+            "timeout": 120,
+            "statusMessage": "rekal: persisting memory before compaction",
+            "prompt": "Context is about to be compacted, so run the rekal-save procedure now before anything is lost: extract durable facts, decisions, and preferences from the transcript, dedupe each via mcp__rekal__memory_search then mcp__rekal__memory_store or memory_supersede (never two memories on one topic, never store secrets), and produce no user-facing output. Transcript: $ARGUMENTS"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "timeout": 120,
+            "statusMessage": "rekal: persisting memory at session end",
+            "prompt": "The session is ending, so run the rekal-save procedure now before anything is lost: extract durable facts, decisions, and preferences from the transcript, dedupe each via mcp__rekal__memory_search then mcp__rekal__memory_store or memory_supersede (never two memories on one topic, never store secrets), and produce no user-facing output. Transcript: $ARGUMENTS"
           }
         ]
       }

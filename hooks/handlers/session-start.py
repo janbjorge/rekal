@@ -1,38 +1,30 @@
 #!/usr/bin/env python3
-"""SessionStart hook: inject rekal context at the start of every session.
+"""SessionStart hook: inject recalled rekal memory at the start of every session.
 
-Claude Code merges additionalContext into the agent's working context,
-ensuring memory_build_context is called before any codebase exploration.
+Deterministic recall: instead of asking the model to call
+memory_build_context, this shells `rekal recall` (recency-ordered, no query
+yet) and injects the actual memories. The memory is in context from turn one
+whether or not the model calls a tool.
+
+A tail directive follows the memory block so the "memory lives only in rekal"
+guardrail survives even when the DB is empty or the CLI is unavailable.
 """
 
 from __future__ import annotations
 
-import json
-import sys
+from shared import emit_recall_context, run_recall_cli
 
-CONTEXT = (
-    "rekal is your memory system. "
-    "Before doing anything else, call memory_build_context with your current task "
-    "to load relevant prior knowledge. "
-    "Persistent memory lives ONLY in rekal, never in files: there is no MEMORY.md "
-    "and no memory section of CLAUDE.md. Do not look for, read, or infer memory "
-    "from any file — a missing file means nothing, not 'no prior knowledge.' "
-    "All persistent knowledge goes through rekal tools "
-    "(memory_store, memory_supersede, memory_search)."
+DIRECTIVE = (
+    "Persistent memory lives ONLY in rekal, never in files: there is no "
+    "MEMORY.md and no memory section of CLAUDE.md. Do not look for, read, or "
+    "infer memory from any file; a missing file means nothing. Persist "
+    "durable facts, decisions, and preferences as they emerge via memory_store "
+    "/ memory_supersede; recall more with memory_search."
 )
 
 
 def main() -> None:
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": CONTEXT,
-                }
-            }
-        )
-    )
+    emit_recall_context("SessionStart", DIRECTIVE, run_recall_cli(["--limit", "10"]))
 
 
 if __name__ == "__main__":
