@@ -84,6 +84,18 @@ WARM_TOOLS = COLD_TOOLS + ",mcp__rekal__*"
 # Flags every headless invocation shares, regardless of arm.
 HEADLESS = ["--no-session-persistence", "--permission-mode", "dontAsk"]
 
+# Appended to the question for warm arms only. Without it the warm agent
+# treats recalled memory as a supplement and re-reads the code anyway (fastapi
+# warm-seed did 54 Reads vs cold's 57 — recall added turns without removing
+# exploration). This tells it to trust memory and read only to fill gaps, which
+# is how rekal is meant to be used. Given to BOTH warm arms (empty + seed) so
+# the overhead decomposition still isolates memory content, not the instruction.
+WARM_GUIDANCE = (
+    "\n\nBefore exploring, recall what prior sessions already learned about this "
+    "subsystem from your memory (rekal) and rely on it. Read the code only to "
+    "fill genuine gaps — do not re-derive or re-verify what memory already states."
+)
+
 
 @cache
 def rekal_bin() -> str:
@@ -395,7 +407,10 @@ def run_claude(
 def one_run(repo: str, arm: str, q: dict, role: str, run: int, pos: str) -> RunResult:
     """Execute one headless question, stream its tool pulse, print a result line."""
     rr = RunResult(repo=repo, arm=arm, pair=q["pair"], role=role, run=run)
-    argv, env = build_cmd(arm, repo, q[role])
+    # Warm arms get the recall nudge; cold has no memory to recall, so its
+    # prompt stays the bare question.
+    question = q[role] + (WARM_GUIDANCE if arm != Arm.COLD else "")
+    argv, env = build_cmd(arm, repo, question)
     print(f"\n{pos} {q['pair']}/{role} · {arm} #{run}", flush=True)
     run_claude(argv, REPOS / repo, env, rr)
     print(
