@@ -6,18 +6,34 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
+from typing import get_args
 from unittest.mock import patch
 
 import pytest
 
-from rekal.__main__ import main, run_export, run_health, run_prune, run_recall
+from rekal.__main__ import (
+    MemoryTypeChoice,
+    main,
+    run_export,
+    run_health,
+    run_prune,
+    run_recall,
+)
 from rekal.adapters.sqlite_adapter import SqliteDatabase
+from rekal.models import MemoryType
 
 from .conftest import deterministic_embed
 
-# run_recall builds its own FastEmbedder; swap it for the deterministic test
-# embedder so the query path never loads (or downloads) the real ONNX model.
-patch_embedder = patch("rekal.__main__.FastEmbedder", lambda: deterministic_embed)
+# recall/open_db build their own FastEmbedder (lazily imported from
+# rekal.embeddings); swap it for the deterministic test embedder so the query
+# path never loads (or downloads) the real ONNX model.
+patch_embedder = patch("rekal.embeddings.FastEmbedder", lambda: deterministic_embed)
+
+
+def test_memory_type_choice_matches_literal() -> None:
+    # MemoryTypeChoice is hand-listed (kept stdlib-only so the hook CLI path
+    # never imports pydantic). Guard against it drifting from the source Literal.
+    assert {c.value for c in MemoryTypeChoice} == set(get_args(MemoryType))
 
 
 async def test_run_health(capsys: pytest.CaptureFixture[str]) -> None:
@@ -160,12 +176,14 @@ def test_main_recall(monkeypatch: pytest.MonkeyPatch) -> None:
         with (
             patch_embedder,
             patch("sys.argv", ["rekal", "--db", db_path, "recall", "--query", "fact"]),
+            pytest.raises(SystemExit) as e,
         ):
             main()
+        assert e.value.code in (0, None)
 
 
 def test_main_recall_leading_dash_query() -> None:
-    # `--query=-x` must parse; a bare `--query -x` would make argparse exit.
+    # `--query=-x` must parse as a value, not be mistaken for a flag.
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "test.db")
 
@@ -178,8 +196,10 @@ def test_main_recall_leading_dash_query() -> None:
         with (
             patch_embedder,
             patch("sys.argv", ["rekal", "--db", db_path, "recall", "--query=-dashy"]),
+            pytest.raises(SystemExit) as e,
         ):
             main()
+        assert e.value.code in (0, None)
 
 
 def test_main_health() -> None:
@@ -192,8 +212,12 @@ def test_main_health() -> None:
 
         asyncio.run(setup())
 
-        with patch("sys.argv", ["rekal", "--db", db_path, "health"]):
+        with (
+            patch("sys.argv", ["rekal", "--db", db_path, "health"]),
+            pytest.raises(SystemExit) as e,
+        ):
             main()
+        assert e.value.code in (0, None)
 
 
 async def test_run_prune_no_db() -> None:
@@ -355,8 +379,12 @@ def test_main_prune() -> None:
 
         asyncio.run(setup())
 
-        with patch("sys.argv", ["rekal", "--db", db_path, "prune", "--project", "trash", "--yes"]):
+        with (
+            patch("sys.argv", ["rekal", "--db", db_path, "prune", "--project", "trash", "--yes"]),
+            pytest.raises(SystemExit) as e,
+        ):
             main()
+        assert e.value.code in (0, None)
 
 
 def test_main_export() -> None:
@@ -369,5 +397,9 @@ def test_main_export() -> None:
 
         asyncio.run(setup())
 
-        with patch("sys.argv", ["rekal", "--db", db_path, "export"]):
+        with (
+            patch("sys.argv", ["rekal", "--db", db_path, "export"]),
+            pytest.raises(SystemExit) as e,
+        ):
             main()
+        assert e.value.code in (0, None)

@@ -1,140 +1,121 @@
-"""Tests for the rekal Claude Code plugin hooks (hooks/handlers/).
+"""Tests for the rekal Claude Code hook commands (``rekal hook <event>``).
 
-These run the handler scripts as subprocesses — the same way Claude Code
-invokes them — and assert on exit code and stdout JSON. The handlers live
-outside the ``rekal`` package (they ship with the plugin), so they are not
-imported directly.
+The plugin's hooks.json invokes these as ``uv run ... rekal hook <event>``, so
+they are exercised through the typer CLI the same way Claude Code runs them:
+recall runs in-process against the --db, and a payload is printed to stdout.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
-import os
-import shlex
-import subprocess
-import sys
+import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from click.testing import Result
+from typer.testing import CliRunner
 
-HANDLERS = Path(__file__).resolve().parent.parent / "hooks" / "handlers"
+from rekal.__main__ import app
+from rekal.adapters.sqlite_adapter import SqliteDatabase
 
-# By default, point the recall CLI at a no-op so tests never invoke the real
-# `rekal recall` against the user's live ~/.rekal/memory.db. Individual tests
-# override REKAL_RECALL_CMD to a stub to exercise memory injection.
-NOOP_RECALL = f"{shlex.quote(sys.executable)} -c pass"
+from .conftest import deterministic_embed
 
+runner = CliRunner()
 
-def run_handler(
-    name: str, stdin: str = "", env: dict[str, str] | None = None
-) -> subprocess.CompletedProcess[str]:
-    merged = {**os.environ, "REKAL_RECALL_CMD": NOOP_RECALL}
-    if env:
-        merged.update(env)
-    return subprocess.run(
-        [sys.executable, str(HANDLERS / name)],
-        input=stdin,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=merged,
-    )
+# The query recall path embeds; swap FastEmbedder for the deterministic test
+# embedder so it never loads the real ONNX model.
+patch_embedder = patch("rekal.embeddings.FastEmbedder", lambda: deterministic_embed)
 
 
-def stub_recall_cmd(tmp_path: Path, *, stdout: str = "", exit_code: int = 0) -> str:
-    """Write a fake recall CLI printing ``stdout`` then exiting ``exit_code``."""
-    stub = tmp_path / "recall_stub.py"
-    stub.write_text(f"import sys\nsys.stdout.write({stdout!r})\nsys.exit({exit_code})\n")
-    return f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
+async def make_db(path: str, *stores: tuple[str, str | None]) -> None:
+    db = await SqliteDatabase.create(path, deterministic_embed)
+    try:
+        for content, project in stores:
+            await db.store(content, project=project)
+    finally:
+        await db.close()
+
+
+def injected_context(result: Result, event: str) -> str:
+    assert result.exit_code == 0
+    out = json.loads(result.stdout)["hookSpecificOutput"]
+    assert out["hookEventName"] == event
+    return out["additionalContext"]
 
 
 def tool_call(file_path: str) -> str:
     return json.dumps({"tool_input": {"file_path": file_path}})
 
 
-# --- context-injection handlers -------------------------------------------
-
-
-def injected_context(result: subprocess.CompletedProcess[str], event: str) -> str:
-    assert result.returncode == 0
-    out = json.loads(result.stdout)["hookSpecificOutput"]
-    assert out["hookEventName"] == event
-    return out["additionalContext"]
+# --- context-injection commands -------------------------------------------
 
 
 def test_session_start_directive_when_no_memory() -> None:
-    # No-op recall (empty DB / no memories) → directive still injected.
-    ctx = injected_context(run_handler("session-start.py"), "SessionStart")
+    # Missing DB → recall degrades to empty, but the directive is still injected.
+    result = runner.invoke(app, ["--db", "/nonexistent/db.sqlite", "hook", "session-start"])
+    ctx = injected_context(result, "SessionStart")
     assert "rekal" in ctx
     assert "only" in ctx.lower()
 
 
-def test_session_start_injects_memory(tmp_path: Path) -> None:
-    cmd = stub_recall_cmd(tmp_path, stdout="## rekal memory\n- [fact] Uses Postgres (id abc)")
-    ctx = injected_context(
-        run_handler("session-start.py", env={"REKAL_RECALL_CMD": cmd}), "SessionStart"
-    )
-    assert "Uses Postgres" in ctx
-    assert "rekal" in ctx  # tail directive still present
+def test_session_start_injects_memory() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        asyncio.run(make_db(db_path, ("Uses Postgres", None)))
+
+        result = runner.invoke(app, ["--db", db_path, "hook", "session-start"])
+        ctx = injected_context(result, "SessionStart")
+        assert "Uses Postgres" in ctx
+        assert "rekal" in ctx  # tail directive still present
 
 
-def test_session_start_directive_when_recall_fails(tmp_path: Path) -> None:
-    cmd = stub_recall_cmd(tmp_path, stdout="noise", exit_code=1)
-    ctx = injected_context(
-        run_handler("session-start.py", env={"REKAL_RECALL_CMD": cmd}), "SessionStart"
-    )
-    assert "noise" not in ctx  # non-zero exit → output discarded
-    assert "rekal" in ctx
+def test_session_start_directive_when_recall_fails() -> None:
+    # A file that exists but is not a valid SQLite DB → recall raises internally
+    # and degrades to directive-only; the hook must not crash.
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "not.db"
+        bad.write_text("this is not a sqlite database")
+        result = runner.invoke(app, ["--db", str(bad), "hook", "session-start"])
+        ctx = injected_context(result, "SessionStart")
+        assert "rekal" in ctx
 
 
-def test_user_prompt_injects_query_memory(tmp_path: Path) -> None:
-    cmd = stub_recall_cmd(tmp_path, stdout="## rekal memory\n- [preference] Ruff > Black (id x)")
-    ctx = injected_context(
-        run_handler(
-            "user-prompt-submit.py",
-            stdin=json.dumps({"prompt": "set up linting"}),
-            env={"REKAL_RECALL_CMD": cmd},
-        ),
-        "UserPromptSubmit",
-    )
-    assert "Ruff > Black" in ctx
-    assert "rekal" in ctx
+def test_user_prompt_injects_query_memory() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        asyncio.run(make_db(db_path, ("Ruff over Black for formatting", None)))
 
-
-def test_user_prompt_passes_query_as_single_token(tmp_path: Path) -> None:
-    # A prompt starting with "-" must reach `rekal recall` as --query=<prompt>,
-    # not a bare arg argparse would mistake for a flag. Stub echoes its argv.
-    stub = tmp_path / "echo_argv.py"
-    stub.write_text("import sys\nsys.stdout.write(' '.join(sys.argv[1:]))\n")
-    cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
-    ctx = injected_context(
-        run_handler(
-            "user-prompt-submit.py",
-            stdin=json.dumps({"prompt": "--dangerous flag"}),
-            env={"REKAL_RECALL_CMD": cmd},
-        ),
-        "UserPromptSubmit",
-    )
-    assert "--query=--dangerous flag" in ctx
+        with patch_embedder:
+            result = runner.invoke(
+                app,
+                ["--db", db_path, "hook", "user-prompt-submit"],
+                input=json.dumps({"prompt": "formatting"}),
+            )
+        ctx = injected_context(result, "UserPromptSubmit")
+        assert "Ruff over Black" in ctx
+        assert "rekal" in ctx
 
 
 @pytest.mark.parametrize("stdin", ["", "{}", '{"prompt": ""}', "[]", "not json"])
-def test_user_prompt_directive_when_no_prompt(tmp_path: Path, stdin: str) -> None:
-    # No usable prompt → recall skipped, directive-only. Stub would print if
-    # called; assert it did not.
-    cmd = stub_recall_cmd(tmp_path, stdout="SHOULD-NOT-APPEAR")
-    ctx = injected_context(
-        run_handler("user-prompt-submit.py", stdin=stdin, env={"REKAL_RECALL_CMD": cmd}),
-        "UserPromptSubmit",
-    )
-    assert "SHOULD-NOT-APPEAR" not in ctx
-    assert "rekal" in ctx
+def test_user_prompt_directive_when_no_prompt(stdin: str) -> None:
+    # No usable prompt → recall skipped, directive-only. A stored memory would
+    # appear if recall ran; assert it did not.
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        asyncio.run(make_db(db_path, ("SHOULD-NOT-APPEAR", None)))
+
+        result = runner.invoke(app, ["--db", db_path, "hook", "user-prompt-submit"], input=stdin)
+        ctx = injected_context(result, "UserPromptSubmit")
+        assert "SHOULD-NOT-APPEAR" not in ctx
+        assert "rekal" in ctx
 
 
-# --- PreToolUse memory-file redirect handlers -----------------------------
+# --- PreToolUse memory-file redirect commands -----------------------------
 
 
-@pytest.mark.parametrize("handler", ["block-memory-writes.py", "redirect-memory-reads.py"])
+@pytest.mark.parametrize("command", ["block-memory-writes", "redirect-memory-reads"])
 @pytest.mark.parametrize(
     "path",
     [
@@ -145,16 +126,16 @@ def test_user_prompt_directive_when_no_prompt(tmp_path: Path, stdin: str) -> Non
         r"C:\proj\MEMORY.md",
     ],
 )
-def test_memory_paths_are_denied(handler: str, path: str) -> None:
-    result = run_handler(handler, tool_call(path))
-    assert result.returncode == 0
+def test_memory_paths_are_denied(command: str, path: str) -> None:
+    result = runner.invoke(app, ["hook", command], input=tool_call(path))
+    assert result.exit_code == 0
     out = json.loads(result.stdout)["hookSpecificOutput"]
     assert out["hookEventName"] == "PreToolUse"
     assert out["permissionDecision"] == "deny"
     assert "memory" in out["permissionDecisionReason"].lower()
 
 
-@pytest.mark.parametrize("handler", ["block-memory-writes.py", "redirect-memory-reads.py"])
+@pytest.mark.parametrize("command", ["block-memory-writes", "redirect-memory-reads"])
 @pytest.mark.parametrize(
     "path",
     [
@@ -165,7 +146,7 @@ def test_memory_paths_are_denied(handler: str, path: str) -> None:
         "",
     ],
 )
-def test_non_memory_paths_pass_through(handler: str, path: str) -> None:
-    result = run_handler(handler, tool_call(path) if path else "{}")
-    assert result.returncode == 0
+def test_non_memory_paths_pass_through(command: str, path: str) -> None:
+    result = runner.invoke(app, ["hook", command], input=tool_call(path) if path else "{}")
+    assert result.exit_code == 0
     assert result.stdout.strip() == ""

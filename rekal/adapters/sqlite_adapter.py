@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections import ChainMap
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -26,6 +27,7 @@ from rekal.scoring import RawScores, ScoringWeights, combine_scores
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import AsyncIterator
 
     from rekal.embeddings import EmbeddingFunc
     from rekal.models import MemoryRelation, MemoryTier, MemoryType
@@ -232,6 +234,25 @@ class SqliteDatabase:
 
     async def close(self) -> None:
         await self.db.close()
+
+    @staticmethod
+    @asynccontextmanager
+    async def session(
+        db_path: str,
+        embed: EmbeddingFunc,
+        *,
+        dimensions: int = 384,
+    ) -> AsyncIterator[SqliteDatabase]:
+        """Context-managed create()/close(): open a DB, close it on exit.
+
+        Lets callers drop the ``db = await create(...); try: ... finally:
+        await db.close()`` boilerplate for ``async with session(...) as db:``.
+        """
+        db = await SqliteDatabase.create(db_path, embed, dimensions=dimensions)
+        try:
+            yield db
+        finally:
+            await db.close()
 
     # ── Config ────────────────────────────────────────────────────────
 
