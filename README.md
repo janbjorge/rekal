@@ -389,11 +389,11 @@ rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
 Plugin (hooks + skills)
   │
   ├── hooks/
-  │   ├── handlers/session-start.py        ← SessionStart: inject context reminder
-  │   ├── handlers/user-prompt-submit.py   ← UserPromptSubmit: re-assert rekal every turn
+  │   ├── handlers/session-start.py        ← SessionStart: inject recalled memory
+  │   ├── handlers/user-prompt-submit.py   ← UserPromptSubmit: inject query-relevant memory
   │   ├── handlers/block-memory-writes.py  ← PreToolUse: redirect MEMORY.md writes to rekal
   │   ├── handlers/redirect-memory-reads.py ← PreToolUse: redirect MEMORY.md reads to rekal
-  │   └── handlers/shared.py               ← shared path predicate + deny helper
+  │   └── handlers/shared.py               ← shared path predicate, recall CLI, inject helpers
   │
   └── skills/
       ├── rekal-init/    ← /rekal-init: bootstrap project knowledge
