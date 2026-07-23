@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import sys
 
-from shared import emit_additional_context, run_recall_cli
+from shared import emit_recall_context, run_recall_cli
 
 DIRECTIVE = (
     "[rekal memory] Memory lives ONLY in rekal, not files. Persist durable "
@@ -39,9 +39,7 @@ def read_prompt() -> str | None:
 def main() -> None:
     prompt = read_prompt()
     memory = run_recall_cli(["--query", prompt, "--limit", "5"]) if prompt else None
-    blocks = [memory] if memory else []
-    blocks.append(DIRECTIVE)
-    emit_additional_context("UserPromptSubmit", "\n\n".join(blocks))
+    emit_recall_context("UserPromptSubmit", DIRECTIVE, memory)
 
 
 if __name__ == "__main__":

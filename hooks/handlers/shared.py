@@ -51,6 +51,16 @@ def emit_additional_context(event: str, text: str) -> None:
     )
 
 
+def emit_recall_context(event: str, directive: str, memory: str | None) -> None:
+    """Inject recalled ``memory`` (when present) followed by ``directive``.
+
+    Shared by session-start and user-prompt-submit so the memory-then-directive
+    contract lives in one place.
+    """
+    parts = [memory, directive] if memory else [directive]
+    emit_additional_context(event, "\n\n".join(parts))
+
+
 def run_recall_cli(extra_args: list[str]) -> str | None:
     """Run ``rekal recall`` and return its stdout, or None on any failure.
 

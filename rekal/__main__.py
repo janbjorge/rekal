@@ -9,18 +9,16 @@ import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
-from rekal.adapters.mcp_adapter import (
-    default_db_path,
-    find_config_file,
-    load_file_config,
-)
 from rekal.adapters.sqlite_adapter import SqliteDatabase
+from rekal.config import default_db_path, find_config_file, load_file_config
 from rekal.embeddings import FastEmbedder
 
 if TYPE_CHECKING:
-    from rekal.models import MemoryType
+    from rekal.models import MemoryResult, MemoryType
+
+RecallFormat = Literal["text", "json"]
 
 
 def get_db_path(args: argparse.Namespace) -> str:
@@ -47,52 +45,53 @@ async def run_health(db_path: str) -> None:
         await db.close()
 
 
+def render_recall(memories: list[MemoryResult], *, project: str | None, fmt: RecallFormat) -> str:
+    """Render memories for hook injection. Empty text renders to "" (inject
+    nothing); empty JSON renders to "[]"."""
+    if fmt == "json":
+        return json.dumps([m.model_dump() for m in memories], indent=2)
+    if not memories:
+        return ""
+    scope = f" (project: {project})" if project else ""
+    lines = [f"## rekal memory{scope}"]
+    lines.extend(f"- [{m.memory_type}] {m.content} (id {m.id})" for m in memories)
+    return "\n".join(lines)
+
+
 async def run_recall(
     db_path: str,
     *,
     project: str | None,
     query: str | None,
     limit: int,
-    fmt: str,
+    fmt: RecallFormat,
 ) -> None:
     # Recall must never block a session: a missing DB is not an error here
-    # (unlike health/export, which sys.exit(1)). Emit nothing and return.
-    if not Path(db_path).exists():
-        if fmt == "json":
-            print("[]")
-        return
+    # (unlike health/export, which sys.exit(1)) — it renders as empty.
+    memories: list[MemoryResult] = []
+    if Path(db_path).exists():
+        embed = FastEmbedder()
+        db = await SqliteDatabase.create(db_path, embed)
+        try:
+            if query:
+                # Query path embeds the query and runs the durable-tier hybrid
+                # search directly — build_context would also compute scratch,
+                # conflicts, and a timeline summary that injection discards.
+                weights = await db.resolve_weights(
+                    project, file_config=load_file_config(find_config_file())
+                )
+                memories = await db.search(
+                    query, limit=limit, project=project, tier="durable", weights=weights
+                )
+            else:
+                # No query (session start): recency-ordered, no embedding load.
+                memories = await db.memory_timeline(project=project, limit=limit)
+        finally:
+            await db.close()
 
-    embed = FastEmbedder()
-    db = await SqliteDatabase.create(db_path, embed)
-    try:
-        if query:
-            # Query path embeds the query (loads the ONNX model) and runs the
-            # full hybrid search. scratch_limit=0: per-turn injection stays lean.
-            weights = await db.resolve_weights(
-                project, file_config=load_file_config(find_config_file())
-            )
-            result = await db.build_context(
-                query, project=project, limit=limit, scratch_limit=0, weights=weights
-            )
-            memories = result.memories
-        else:
-            # No query (session start): recency-ordered, no embedding load.
-            memories = await db.memory_timeline(project=project, limit=limit)
-    finally:
-        await db.close()
-
-    if fmt == "json":
-        print(json.dumps([m.model_dump() for m in memories], indent=2))
-        return
-
-    # Text format: a compact block for context injection. Empty result prints
-    # nothing so the calling hook injects nothing.
-    if not memories:
-        return
-    scope = f" (project: {project})" if project else ""
-    lines = [f"## rekal memory{scope}"]
-    lines.extend(f"- [{m.memory_type}] {m.content} (id {m.id})" for m in memories)
-    print("\n".join(lines))
+    output = render_recall(memories, project=project, fmt=fmt)
+    if output:
+        print(output)
 
 
 async def run_export(db_path: str) -> None:

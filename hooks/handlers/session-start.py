@@ -12,7 +12,7 @@ guardrail survives even when the DB is empty or the CLI is unavailable.
 
 from __future__ import annotations
 
-from shared import emit_additional_context, run_recall_cli
+from shared import emit_recall_context, run_recall_cli
 
 DIRECTIVE = (
     "Persistent memory lives ONLY in rekal, never in files: there is no "
@@ -24,10 +24,7 @@ DIRECTIVE = (
 
 
 def main() -> None:
-    memory = run_recall_cli(["--limit", "10"])
-    blocks = [memory] if memory else []
-    blocks.append(DIRECTIVE)
-    emit_additional_context("SessionStart", "\n\n".join(blocks))
+    emit_recall_context("SessionStart", DIRECTIVE, run_recall_cli(["--limit", "10"]))
 
 
 if __name__ == "__main__":

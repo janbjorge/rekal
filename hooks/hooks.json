@@ -29,7 +29,7 @@
             "type": "agent",
             "timeout": 120,
             "statusMessage": "rekal: persisting memory before compaction",
-            "prompt": "Context is about to be compacted — persist durable knowledge to rekal NOW so nothing is lost. Procedure (the rekal-save skill has the full version if available): 1) Review the transcript and extract durable candidates: preferences with reasons, architecture/conventions, decisions and why, procedures, non-obvious bug root causes, behavior corrections. Skip transient state, trivially re-discoverable facts, vague platitudes, and secrets/keys/tokens (never store secrets). 2) Distill and compress each to a self-contained 1-2 sentence fact. 3) For each, call mcp__rekal__memory_search first; if the same topic already exists call mcp__rekal__memory_supersede, otherwise mcp__rekal__memory_store with a memory_type and 2-4 specific tags. Two memories about one topic must never coexist. 4) Produce NO user-facing output. Transcript: $ARGUMENTS"
+            "prompt": "Context is about to be compacted — run the rekal-save procedure NOW so nothing is lost: extract durable facts, decisions, and preferences from the transcript, dedupe each via mcp__rekal__memory_search then mcp__rekal__memory_store or memory_supersede (never two memories on one topic, never store secrets), and produce NO user-facing output. Transcript: $ARGUMENTS"
           }
         ]
       }
@@ -41,7 +41,7 @@
             "type": "agent",
             "timeout": 120,
             "statusMessage": "rekal: persisting memory at session end",
-            "prompt": "The session is ending — persist durable knowledge to rekal NOW so nothing is lost. Procedure (the rekal-save skill has the full version if available): 1) Review the transcript and extract durable candidates: preferences with reasons, architecture/conventions, decisions and why, procedures, non-obvious bug root causes, behavior corrections. Skip transient state, trivially re-discoverable facts, vague platitudes, and secrets/keys/tokens (never store secrets). 2) Distill and compress each to a self-contained 1-2 sentence fact. 3) For each, call mcp__rekal__memory_search first; if the same topic already exists call mcp__rekal__memory_supersede, otherwise mcp__rekal__memory_store with a memory_type and 2-4 specific tags. Two memories about one topic must never coexist. 4) Produce NO user-facing output. Transcript: $ARGUMENTS"
+            "prompt": "The session is ending — run the rekal-save procedure NOW so nothing is lost: extract durable facts, decisions, and preferences from the transcript, dedupe each via mcp__rekal__memory_search then mcp__rekal__memory_store or memory_supersede (never two memories on one topic, never store secrets), and produce NO user-facing output. Transcript: $ARGUMENTS"
           }
         ]
       }
