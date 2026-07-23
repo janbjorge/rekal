@@ -128,8 +128,8 @@ empty.
 - Everything generated (`repos/ dbs/ results/ config/ *.jsonl`) is
   gitignored; only the runner, questions, and docs are committed.
 - Runs are long: each question is a full agent exploration (minutes).
-  `run` streams a live tool pulse (`· read routing.py`, memory calls
-  flagged `⟐`), a compact per-run line (`= 191k tok · 11 turns · N
+  `run` streams a live tool pulse (`- read routing.py`, memory calls
+  flagged `*`), a compact per-run line (`= 191k tok | 11 turns | N
   tools`), and (the useful part) a **per-pair verdict** the moment a
   pair's arms finish: median tokens per arm, warm deltas vs cold, and a
   `rekal SAVED` / `rekal COST MORE` net line. Results flush per run, so an
