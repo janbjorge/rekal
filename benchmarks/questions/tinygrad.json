@@ -3,7 +3,7 @@
     "pair": "uop-core",
     "subsystem": "UOp graph (tinygrad/uop/ops.py)",
     "seed": "In tinygrad, what is a UOp? List its fields and explain how UOps are deduplicated/interned so identical nodes are shared.",
-    "heldout": "How does UOp graph rewriting stay immutable — how does UOp.replace produce a new node without mutating the original graph?"
+    "heldout": "How does UOp graph rewriting stay immutable, and how does UOp.replace produce a new node without mutating the original graph?"
   },
   {
     "pair": "pattern-matcher",
@@ -15,7 +15,7 @@
     "pair": "scheduler",
     "subsystem": "Scheduler (tinygrad/schedule/)",
     "seed": "How does tinygrad turn a Tensor computation graph into a schedule of kernels? What does rangeify do?",
-    "heldout": "How does the tinygrad scheduler decide kernel fusion boundaries — what conditions force two ops into separate kernels?"
+    "heldout": "How does the tinygrad scheduler decide kernel fusion boundaries, and what conditions force two ops into separate kernels?"
   },
   {
     "pair": "shapetracker",
@@ -39,7 +39,7 @@
     "pair": "jit",
     "subsystem": "TinyJit (tinygrad/engine/jit.py)",
     "seed": "How does TinyJit capture and replay a kernel graph across calls?",
-    "heldout": "How does TinyJit handle changing input shapes or values — when does a captured graph get invalidated or reused?"
+    "heldout": "How does TinyJit handle changing input shapes or values, and when does a captured graph get invalidated or reused?"
   },
   {
     "pair": "autograd",

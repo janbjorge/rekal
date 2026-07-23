@@ -59,7 +59,7 @@ Notes:
 
 - All arms share ONE authenticated config dir (`config/warm`) and the
   same hookless `settings.json` (`autoMemoryEnabled: false`), so the only
-  difference between arms is rekal itself — not auth, plugins, or global
+  difference between arms is rekal itself, not auth, plugins, or global
   CLAUDE.md (none load: the config dir is isolated, not `~/.claude`).
 - cold adds nothing: `--strict-mcp-config` with no `--mcp-config` → zero
   MCP servers, and no `--settings hooks.json` → no recall injection.
@@ -72,20 +72,21 @@ Notes:
 - Store is OFF in measured runs, enforced at the allowlist: measured warm
   arms only get `memory_build_context` + `memory_search`, never
   `memory_store`. The rekal MCP system prompt nudges the agent to store as
-  it works, so leaving store merely unrequested isn't enough — a stray
+  it works, so leaving store merely unrequested isn't enough: a stray
   write would burn a turn (and fail against the frozen seed) and inflate
   the warm arm. Only `learn` exposes `memory_store`, to build the seed DB.
 - Both warm arms' prompts get a recall nudge ("recall first, read only to
   fill gaps"). Without it the warm agent recalls memory but re-reads the
-  code anyway, so recall adds turns instead of replacing exploration —
-  which is how rekal is meant to be used, not a thumb on the scale. Given
+  code anyway, so recall adds turns instead of replacing exploration.
+  Recall-first is how rekal is meant to be used, not a thumb on the
+  scale. Given
   to warm-empty AND warm-seed so overhead=warm-empty−cold absorbs the
   instruction and benefit=warm-empty−warm-seed still isolates memory
   content. cold has no memory, so its prompt stays the bare question.
 - Seed DB built once by a curated learn pass, then FROZEN (chmod 0o444)
   per run so stray writes can't mutate it.
 - Auth: headless `claude -p` needs a logged-in config dir. Authenticate
-  the isolated one ONCE — `CLAUDE_CONFIG_DIR=config/warm claude` then
+  the isolated one ONCE: `CLAUDE_CONFIG_DIR=config/warm claude` then
   `/login`. Running elsewhere / unauthenticated returns "Not logged in"
   and the runner hard-exits rather than record a zero-token run.
 

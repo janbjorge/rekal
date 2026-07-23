@@ -9,7 +9,7 @@
     "pair": "op-registration",
     "subsystem": "ATen op registration (aten/src/ATen/native/native_functions.yaml)",
     "seed": "How are ATen operators declared in native_functions.yaml and how does codegen turn a YAML entry into a callable op?",
-    "heldout": "How do you add a new native operator with CPU and CUDA implementations — which files and codegen steps are involved?"
+    "heldout": "How do you add a new native operator with CPU and CUDA implementations, and which files and codegen steps are involved?"
   },
   {
     "pair": "autograd-engine",
