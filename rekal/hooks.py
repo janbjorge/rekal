@@ -21,14 +21,17 @@ MEMORY_SUFFIXES = frozenset((".md", ".txt"))
 # fails. SessionStart runs once (verbose); UserPromptSubmit runs every turn
 # (terse — its token cost is paid repeatedly).
 SESSION_START_DIRECTIVE = (
-    "Persistent memory lives ONLY in rekal, never in files: there is no "
-    "MEMORY.md and no memory section of CLAUDE.md. Do not look for, read, or "
-    "infer memory from any file; a missing file means nothing. Persist "
-    "durable facts, decisions, and preferences as they emerge via memory_store "
-    "/ memory_supersede; recall more with memory_search."
+    "Persistent memory — durable facts, decisions, and preferences recalled "
+    "across sessions — lives ONLY in rekal, never in files: there is no "
+    "MEMORY.md and no memory section of CLAUDE.md. Treat no file as a store of "
+    "remembered facts, and a missing file as meaningless. This concerns memory "
+    "only: instructions in CLAUDE.md / AGENTS.md still apply in full. Persist "
+    "durable facts as they emerge via memory_store / memory_supersede; recall "
+    "more with memory_search."
 )
 PROMPT_SUBMIT_DIRECTIVE = (
-    "[rekal memory] Memory lives ONLY in rekal, not files. Persist durable "
+    "[rekal memory] Remembered facts live ONLY in rekal, not files (CLAUDE.md / "
+    "AGENTS.md instructions still apply). Persist durable "
     "facts/decisions/preferences immediately via memory_store / "
     "memory_supersede; do not batch to end of session."
 )
