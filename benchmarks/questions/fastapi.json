@@ -9,7 +9,7 @@
     "pair": "routing",
     "subsystem": "Routing (fastapi/routing.py)",
     "seed": "How does FastAPI's APIRouter register a path operation and build the ASGI request handler for it?",
-    "heldout": "How does include_router merge one router into another — how are prefix, tags, and dependencies propagated to the child routes?"
+    "heldout": "How does include_router merge one router into another, and how are prefix, tags, and dependencies propagated to the child routes?"
   },
   {
     "pair": "param-declaration",
