@@ -332,24 +332,24 @@ def _tool_bucket(name: str) -> str:
 
 def tool_summary(calls: dict[str, int]) -> str:
     """One-line breakdown of a run's tool use, memory calls first so rekal
-    activity is easy to spot: '18 tools · 3 memory, 8 read, 5 grep, 2 glob'."""
+    activity is easy to spot: '18 tools | 3 memory, 8 read, 5 grep, 2 glob'."""
     buckets: dict[str, int] = {}
     for name, c in calls.items():
         buckets[_tool_bucket(name)] = buckets.get(_tool_bucket(name), 0) + c
     total = sum(buckets.values())
     order = sorted(buckets.items(), key=lambda kv: (kv[0] != "memory", -kv[1]))
     parts = ", ".join(f"{v} {k}" for k, v in order)
-    return f"{total} tools · {parts}" if parts else "0 tools"
+    return f"{total} tools | {parts}" if parts else "0 tools"
 
 
 def _pulse(name: str, detail: str, root: Path) -> str:
     """Format one live tool-call line: repo-relative path, memory calls flagged
-    with ⟐ so rekal recall/store stands out from plain exploration."""
+    with '*' so rekal recall/store stands out from plain '-' exploration."""
     detail = detail.replace(f"{root}/", "").replace("\n", " ")
     if name.startswith("mcp__rekal__"):
-        mark, label = "⟐", name.removeprefix("mcp__rekal__")
+        mark, label = "*", name.removeprefix("mcp__rekal__")
     else:
-        mark, label = "·", _tool_bucket(name)
+        mark, label = "-", _tool_bucket(name)
     return f"    {mark} {label} {detail}".rstrip()[:88]
 
 
@@ -411,7 +411,7 @@ def run_claude(
     if not saw_result or (rr.is_error and rr.total_tokens == 0):
         err = "".join(err_chunks)
         tail = (err.strip().splitlines() or ["(no stderr)"])[-1]
-        sys.exit(f"claude run failed (exit {code}); is it logged in? — {tail[:200]}")
+        sys.exit(f"claude run failed (exit {code}); is it logged in? -- {tail[:200]}")
 
 
 def one_run(repo: str, arm: str, q: dict, role: str, run: int, pos: str) -> RunResult:
@@ -421,10 +421,10 @@ def one_run(repo: str, arm: str, q: dict, role: str, run: int, pos: str) -> RunR
     # prompt stays the bare question.
     question = q[role] + (WARM_GUIDANCE if arm != Arm.COLD else "")
     argv, env = build_cmd(arm, repo, question)
-    print(f"\n{pos} {q['pair']}/{role} · {arm} #{run}", flush=True)
+    print(f"\n{pos} {q['pair']}/{role} | {arm} #{run}", flush=True)
     run_claude(argv, REPOS / repo, env, rr)
     print(
-        f"      = {_tokens(rr.total_tokens)} tok · {rr.num_turns} turns · "
+        f"      = {_tokens(rr.total_tokens)} tok | {rr.num_turns} turns | "
         f"{tool_summary(rr.tool_calls)}"
     )
     return rr
@@ -440,20 +440,20 @@ def rollup(pair: str, role: str, by_arm: dict[str, list[RunResult]]) -> None:
         return statistics.median([r.total_tokens for r in rrs]) if rrs else None
 
     cold = median_tok(Arm.COLD)
-    print(f"  ┌─ {pair}/{role} ── median over runs ──")
-    for arm in Arm:  # fixed cold → warm-empty → warm-seed order
+    print(f"  +- {pair}/{role} -- median over runs --")
+    for arm in Arm:  # fixed cold -> warm-empty -> warm-seed order
         m = median_tok(arm)
         if m is None:
             continue
         delta = f"  {(m - cold) / cold * 100:+.0f}% vs cold" if cold and arm != Arm.COLD else ""
-        print(f"  │  {arm:<11} {_tokens(m):>7} tok{delta}")
+        print(f"  |  {arm:<11} {_tokens(m):>7} tok{delta}")
     ws = median_tok(Arm.WARM_SEED)
     if cold and ws:
         pct = (cold - ws) / cold * 100
         verdict = "rekal SAVED" if pct > 0 else "rekal COST MORE"
-        print(f"  └─ net {pct:+.0f}%  → {verdict}")
+        print(f"  +- net {pct:+.0f}%  -> {verdict}")
     else:
-        print("  └─")
+        print("  +-")
 
 
 def _split_valid(raw: str, enum: type[StrEnum], label: str) -> list[str]:
@@ -479,7 +479,7 @@ def run(
     role_list = _split_valid(roles, Role, "role")
     if Arm.WARM_SEED in arm_list and mem_count(seed_db(repo)) == 0:
         sys.exit(
-            f"warm-seed requested but {seed_db(repo).name} is empty — run `learn {repo}` first"
+            f"warm-seed requested but {seed_db(repo).name} is empty -- run `learn {repo}` first"
         )
     qs = json.loads((QUESTIONS / f"{repo}.json").read_text())
     total = len(qs) * len(role_list) * len(arm_list) * n
@@ -502,7 +502,7 @@ def run(
                     f.flush()
                     by_arm.setdefault(arm, []).append(rr)
                 rollup(q["pair"], role, by_arm)
-    print(f"\nwrote {done} runs to {out} — run `judge {repo}` then `aggregate {repo}`")
+    print(f"\nwrote {done} runs to {out} -- run `judge {repo}` then `aggregate {repo}`")
 
 
 # --------------------------------------------------------------------------- #
@@ -543,7 +543,7 @@ def learn(repo: str) -> None:
         stored = mem_count(seed) - before
         print(f"learned: {q['pair']:<22} (+{stored} memories)")
         if stored == 0:
-            print("  WARNING: nothing stored — agent answered without memory_store")
+            print("  WARNING: nothing stored -- agent answered without memory_store")
     total = mem_count(seed)
     seed.chmod(0o444)  # freeze so measured runs can't mutate it
     print(f"seed DB frozen: {seed} ({total} memories)")
