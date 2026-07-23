@@ -5,7 +5,7 @@ description: >
   checks for duplicates, stores or supersedes as appropriate. Use whenever a
   session wraps up, a task finishes, or the user says goodbye/thanks/done. Also
   use when significant preferences, decisions, or discoveries emerge mid-session.
-  Make sure to trigger this skill proactively — err on the side of capturing.
+  Make sure to trigger this skill proactively. Err on the side of capturing.
 allowed-tools: mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_conflicts mcp__rekal__memory_set_project
 ---
 
@@ -29,16 +29,16 @@ Would a fresh agent in a new session benefit from knowing this?
 | Architecture/convention | `"Auth service uses JWT, lives in services/auth, 15-min token expiry"` |
 | Decision + why | `"Chose PostgreSQL over MySQL for JSONB support and better partial indexes"` |
 | Procedure | `"Deploy: 1) git tag vX.Y.Z 2) git push --tags 3) wait CI 4) merge to main"` |
-| Bug with non-obvious cause | `"OOM from unbounded LRU cache in parser — fixed with maxsize=1000"` |
+| Bug with non-obvious cause | `"OOM from unbounded LRU cache in parser, fixed with maxsize=1000"` |
 | Behavior correction | `"Never use grep/find. Use rg/fd. Strict, no exceptions."` |
 
-**Skip — do not store:**
+**Skip (do not store):**
 
 - Transient state: "currently editing main.py", "tests passing now"
 - Trivially re-discoverable: "function foo is on line 42", "file has 200 lines"
 - Too vague: "user likes clean code", "project uses Python"
 - Session mechanics: "user asked me to fix a bug", "we discussed testing"
-- Secrets, API keys, passwords, tokens — never
+- Secrets, API keys, passwords, tokens: never
 
 If zero candidates survive, stop here. Do not force-store.
 
@@ -85,7 +85,7 @@ Per candidate that passed dedup with no match:
 
 ```python
 memory_store(
-    content="<self-contained content — what AND why>",
+    content="<self-contained content: what AND why>",
     memory_type="<one of: fact, preference, procedure, context, episode>",
     tags=["<tag1>", "<tag2>"],    # 2-4 specific tags. Not "code", "project", "general".
     project="<name>",             # Omit if memory_set_project was called, or if global.
@@ -99,7 +99,7 @@ memory_store(
 | `fact` | Objective truth about code, system, API |
 | `preference` | How user wants things done |
 | `procedure` | Step-by-step workflow |
-| `context` | Current project state — decays via recency scoring |
+| `context` | Current project state (decays via recency scoring) |
 | `episode` | Notable event, debugging session, incident |
 
 ### Content must be self-contained
@@ -109,9 +109,9 @@ A fresh agent with zero conversation context reads this content. It must make co
 ```
 Good: "User prefers Ruff over Black for formatting because it's faster
        and handles import sorting in a single tool"
-Bad:  "User prefers Ruff"               — missing the why
-Bad:  "As discussed, switch to Ruff"     — references conversation
-Bad:  "The formatter preference"         — meaningless alone
+Bad:  "User prefers Ruff"               (missing the why)
+Bad:  "As discussed, switch to Ruff"     (references conversation)
+Bad:  "The formatter preference"         (meaningless alone)
 ```
 
 ### Tags must be specific
@@ -137,11 +137,11 @@ Summarize what was saved:
 
 If nothing was saved (all skipped as duplicates), say so:
 
-> "Reviewed session — no new knowledge to capture. Existing memories already cover it."
+> "Reviewed session, no new knowledge to capture. Existing memories already cover it."
 
 ## Boundaries
 
-- This skill stores memories only. No reorganization, no cleanup — that's `/rekal-hygiene`.
-- No conversation creation — captures knowledge FROM conversations, not about them.
+- This skill stores memories only. No reorganization, no cleanup. That's `/rekal-hygiene`.
+- No conversation creation: captures knowledge FROM conversations, not about them.
 - Never stores secrets, API keys, passwords, tokens.
 - Ask user before storing sensitive or personal content (health, finance, relationships).
