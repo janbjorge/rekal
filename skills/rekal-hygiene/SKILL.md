@@ -3,7 +3,7 @@ name: rekal-hygiene
 description: >
   Periodic memory maintenance and cleanup. Finds duplicates, conflicts, stale
   conversations, and quality issues in the memory database. Proposes fixes for
-  user approval — never auto-deletes or auto-modifies. Use when user says
+  user approval. Never auto-deletes or auto-modifies. Use when user says
   "clean up memories", "memory maintenance", "check memory health", or invokes
   /rekal-hygiene. Run monthly or when conflicts are piling up.
 disable-model-invocation: true
@@ -46,7 +46,7 @@ Conflict type?
 └── False positive (not actually contradictory)
     └── Propose: Remove contradicts link.
         memory_link(from_id="<id_a>", to_id="<id_b>", relation="related_to")
-        — or memory_delete the link if truly unrelated
+        or memory_delete the link if truly unrelated
 ```
 
 Present as numbered list:
@@ -54,7 +54,7 @@ Present as numbered list:
 > 1. **"API uses v2"** vs **"API migrated to v3"**
 >    Proposal: Supersede v2 with v3. [approve/reject]
 > 2. **"Use PostgreSQL"** vs **"Use ClickHouse for analytics"**
->    Proposal: Not a real conflict — different use cases. Remove link. [approve/reject]
+>    Proposal: Not a real conflict, different use cases. Remove link. [approve/reject]
 
 ## Step 3: Find duplicates
 
@@ -94,7 +94,7 @@ conversation_stale(days=30)
 conversation_threads(limit=20)
 ```
 
-Flag conversations with 0 memories as cleanup candidates. Conversations with memories are fine — memories persist regardless.
+Flag conversations with 0 memories as cleanup candidates. Conversations with memories are fine. Memories persist regardless.
 
 Conversations are cheap storage. Only flag truly empty ones older than 30 days.
 
@@ -104,7 +104,7 @@ Conversations are cheap storage. Only flag truly empty ones older than 30 days.
 memory_timeline(limit=20)
 ```
 
-Skip memories created < 24 hours ago — too fresh to judge.
+Skip memories created < 24 hours ago: too fresh to judge.
 
 Per memory, check against these rules:
 
@@ -116,7 +116,7 @@ Quality issue?
 │
 ├── Project-specific content but project=None
 │   └── Propose: add scope
-│       memory_update(memory_id="<id>", project="<correct project>") — NOT SUPPORTED
+│       memory_update(memory_id="<id>", project="<correct project>"), NOT SUPPORTED
 │       Note: memory_update cannot set project. Propose memory_supersede with project= set.
 │
 ├── Wrong memory_type (e.g. a procedure stored as fact)
@@ -174,9 +174,9 @@ These are hard rules. No exceptions.
 
 Do NOT audit everything in one pass. Prioritize in this order:
 
-1. Conflicts — highest impact on search quality
-2. Topic clusters with count >= 5 — most duplicate accumulation
-3. Recent timeline (last 30 days) — freshest quality issues
+1. Conflicts: highest impact on search quality
+2. Topic clusters with count >= 5: most duplicate accumulation
+3. Recent timeline (last 30 days): freshest quality issues
 
 After completing priority items, ask:
 

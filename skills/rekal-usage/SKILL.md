@@ -55,23 +55,23 @@ Queries go through hybrid search: BM25 keywords + vector similarity + recency de
 
 **Do:** Use natural language with domain terms.
 ```
-"JWT refresh token rotation policy"     — specific, has domain terms
-"how to deploy auth service to staging" — natural language, synonyms work
-"user's preferred formatter and why"    — retrieves preferences with reasoning
+"JWT refresh token rotation policy": specific, has domain terms
+"how to deploy auth service to staging": natural language, synonyms work
+"user's preferred formatter and why": retrieves preferences with reasoning
 ```
 
 **Do not:** Use vague, generic, or garbage queries.
 ```
-"stuff"          — matches nothing useful
-"code"           — matches everything
-"the thing"      — no semantic content
+"stuff": matches nothing useful
+"code": matches everything
+"the thing": no semantic content
 ```
 
 ### Filtering
 
-- `project="backend"` — scope to one project. Use when multi-project workspace.
-- `memory_type="preference"` — only user preferences. Types: `fact`, `preference`, `procedure`, `context`, `episode`.
-- `conversation_id="conv_xxx"` — only memories from one conversation.
+- `project="backend"`: scope to one project. Use when multi-project workspace.
+- `memory_type="preference"`: only user preferences. Types: `fact`, `preference`, `procedure`, `context`, `episode`.
+- `conversation_id="conv_xxx"`: only memories from one conversation.
 
 Combine filters: `memory_search(query="testing", project="api", memory_type="procedure", limit=5)`
 
@@ -90,7 +90,7 @@ Combine filters: `memory_search(query="testing", project="api", memory_type="pro
 
 Never skip step 1. Duplicates degrade search quality.
 
-### memory_store — exact parameters
+### memory_store: exact parameters
 
 ```python
 memory_store(
@@ -102,7 +102,7 @@ memory_store(
 )
 ```
 
-### memory_supersede — replacing outdated knowledge
+### memory_supersede: replacing outdated knowledge
 
 ```python
 memory_supersede(
@@ -114,23 +114,23 @@ memory_supersede(
 
 Use supersede, NOT delete + store. Supersede preserves history via links.
 
-### memory_types — pick the right one
+### memory_types: pick the right one
 
 | Type | When | Example content |
 |------|------|-----------------|
 | `fact` | Objective truth about code/systems/APIs | `"Auth service uses JWT with 15-min access token, 7-day refresh token"` |
-| `preference` | How user wants things done | `"User requires rg over grep, fd over find — strict, no exceptions"` |
+| `preference` | How user wants things done | `"User requires rg over grep, fd over find. Strict, no exceptions."` |
 | `procedure` | Step-by-step workflow | `"Deploy: 1) git tag vX.Y.Z 2) git push --tags 3) wait CI green 4) merge to main"` |
 | `context` | Current project state (decays via recency) | `"Rewriting payment service from REST to gRPC, ~60% done"` |
-| `episode` | Notable event, debugging session | `"OOM in parser traced to unbounded LRU cache — fixed by adding maxsize=1000"` |
+| `episode` | Notable event, debugging session | `"OOM in parser traced to unbounded LRU cache, fixed by adding maxsize=1000"` |
 
-### Content rules — distill + compress, always
+### Content rules: distill + compress, always
 
 **Never store raw dialogue, conversation turns, or verbose text.**
 
 Distill to the durable fact, then apply caveman-style compression:
 
-**Drop:** articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries, hedging (might/could/maybe). Replace "in order to" → "to". Remove "you should", "make sure to", "remember to" — state actions directly. Merge redundant points.
+**Drop:** articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries, hedging (might/could/maybe). Replace "in order to" → "to". Remove "you should", "make sure to", "remember to". State actions directly. Merge redundant points.
 
 **Keep exact:** technical terms, proper nouns, version numbers, values, reasons, causality (`X → Y`).
 
@@ -146,17 +146,17 @@ BAD:  "User prefers Ruff over Black for formatting because it's faster and handl
 GOOD: "Ruff > Black. Faster + handles import sort."
 ```
 
-One memory = one distilled, compressed fact. 1-2 sentences max. Must be **self-contained** — fresh agent with zero context must understand it.
+One memory = one distilled, compressed fact. 1-2 sentences max. Must be **self-contained**: fresh agent with zero context must understand it.
 
 ```
-Bad:  "Use Ruff"                     — no reasoning
-Bad:  "As discussed, switch to Ruff" — references lost conversation
-Bad:  "The formatter thing"          — meaningless
+Bad:  "Use Ruff"                     (no reasoning)
+Bad:  "As discussed, switch to Ruff" (references lost conversation)
+Bad:  "The formatter thing"          (meaningless)
 ```
 
 ## Updating and linking
 
-### memory_update — modify in place
+### memory_update: modify in place
 
 ```python
 memory_update(
@@ -169,7 +169,7 @@ memory_update(
 
 Use for minor corrections (typo, adding a tag). For substantive changes, use `memory_supersede`.
 
-### memory_link — connect memories
+### memory_link: connect memories
 
 ```python
 memory_link(
@@ -179,11 +179,11 @@ memory_link(
 )
 ```
 
-- `supersedes` — new version replaces old (created automatically by memory_supersede)
-- `contradicts` — two memories conflict (flag for resolution)
-- `related_to` — topically connected
+- `supersedes`: new version replaces old (created automatically by memory_supersede)
+- `contradicts`: two memories conflict (flag for resolution)
+- `related_to`: topically connected
 
-### memory_conflicts — find contradictions
+### memory_conflicts: find contradictions
 
 ```python
 memory_conflicts(project="backend")
@@ -206,8 +206,8 @@ Conversations are optional. Use when a session has a clear thread worth tracking
 
 - Transient state: "currently editing main.py", "running tests now"
 - Trivially re-discoverable: "function foo is on line 42"
-- Things in CLAUDE.md or AGENTS.md — those files are already persistent
-- Secrets, API keys, passwords, tokens — never
+- Things in CLAUDE.md or AGENTS.md: those files are already persistent
+- Secrets, API keys, passwords, tokens: never
 - Vague platitudes: "user likes clean code", "project uses Python"
 
 ## Do NOT use rekal for

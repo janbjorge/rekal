@@ -2,7 +2,7 @@
 name: rekal-init
 description: >
   Bootstrap rekal memory for a project. Scans the codebase for architecture,
-  conventions, dependencies, workflows, and config — then stores durable
+  conventions, dependencies, workflows, and config, then stores durable
   knowledge as properly typed, tagged, deduplicated memories. Use when starting
   rekal on a new project, or when user says "init rekal", "bootstrap memory",
   "populate rekal", "scan project". Trigger: /rekal-init.
@@ -17,10 +17,10 @@ Bootstrap rekal memory from a codebase. Goal: a fresh agent in a new session has
 1. **Execute ALL steps including Tier 4** (source code scanning). Do NOT stop after reading docs and config.
 2. **Run every Grep command** in Tier 4. Each grep with results → at least 1 memory.
 3. **Store at least 1 memory per source module** discovered in the codebase.
-4. **Read high-signal docs first** (CLAUDE.md, AGENTS.md) — they reveal what else to scan.
-5. **Follow breadcrumbs** — if docs reference other files or dirs, read those too.
+4. **Read high-signal docs first** (CLAUDE.md, AGENTS.md). They reveal what else to scan.
+5. **Follow breadcrumbs.** If docs reference other files or dirs, read those too.
 6. **Run the self-check** in Step 7 before finishing.
-7. **On a fresh DB, skip dedup searches** — nothing to dedup against. Store directly.
+7. **On a fresh DB, skip dedup searches.** Nothing to dedup against. Store directly.
 
 Common failure: agent reads docs + config, stores ~20 memories, skips source code scanning entirely. **Do not do this.**
 
@@ -44,7 +44,7 @@ memory_set_project(project="<name>")
 
 Search for these files in priority order. Read every file that exists. Skip what's missing.
 
-### Tier 1 — High-signal project docs (read fully, read FIRST)
+### Tier 1: High-signal project docs (read fully, read FIRST)
 
 ```
 CLAUDE.md, AGENTS.md, .claude/CLAUDE.md
@@ -62,7 +62,7 @@ Read these BEFORE other tiers. They frequently reference:
 
 **Follow the breadcrumbs.** If CLAUDE.md says "read AGENTS.md before doing anything" or references `docs/api-guide.md`, read those files too. If AGENTS.md describes a specific architecture, that's a memory.
 
-### Tier 2 — Config and dependency manifests (read fully)
+### Tier 2: Config and dependency manifests (read fully)
 
 ```
 pyproject.toml, setup.cfg, setup.py, requirements*.txt
@@ -76,13 +76,13 @@ docker-compose.yml, Dockerfile
 
 Extract: stack + versions, key deps with purpose, CI pipeline steps, Docker setup, env vars needed.
 
-### Tier 3 — Structural exploration
+### Tier 3: Structural exploration
 
 ```
-# Directory tree — top 3 levels via Glob
+# Directory tree: top 3 levels via Glob
 Glob pattern: "**/*/", max-depth 3
 
-# Entry points — look for main/index/app files in src/ and project root
+# Entry points: look for main/index/app files in src/ and project root
 Glob: "main.*", "app.*", "index.*", "src/main.*", "src/index.*", "cmd/*/main.*"
 
 # Config files that reveal conventions
@@ -90,44 +90,44 @@ Glob: "main.*", "app.*", "index.*", "src/main.*", "src/index.*", "cmd/*/main.*"
 mypy.ini, pyrightconfig.json, tox.ini
 ```
 
-Also explore anything Tier 1 docs pointed to — scripts/ dirs, specific modules mentioned by name, etc.
+Also explore anything Tier 1 docs pointed to: scripts/ dirs, specific modules mentioned by name, etc.
 
-### Tier 4 — Source code structure (MANDATORY)
+### Tier 4: Source code structure (MANDATORY)
 
 **You MUST execute every sub-step below.**
 
-Scan the codebase through an architectural lens. The goal is to map the system's layers — not just list files, but understand what role each piece of code plays.
+Scan the codebase through an architectural lens. The goal is to map the system's layers, not just list files but understand what role each piece of code plays.
 
 **4a. Discover all modules/packages:**
 
-Use the directory tree from Tier 3 and the stack from Tier 2 to identify top-level source units (packages, modules, crates, services — whatever the project calls them). Glob for `src/*/` or equivalent. List every module found — store at least 1 memory per module.
+Use the directory tree from Tier 3 and the stack from Tier 2 to identify top-level source units (packages, modules, crates, services, whatever the project calls them). Glob for `src/*/` or equivalent. List every module found. Store at least 1 memory per module.
 
 **4b. Map the architecture by layer:**
 
 For EACH module from 4a, read its entry/index file and 1-2 key files. Classify what you find and store memories accordingly:
 
 **Domain (entities, value objects, business rules):**
-- Find type/model definitions — look in dirs named `models`, `entities`, `domain`, `types`, `schemas`
-- Find enums and constants — these define domain vocabulary (statuses, categories, roles)
-- Find error/exception types — these define domain boundaries and business rule violations
+- Find type/model definitions: look in dirs named `models`, `entities`, `domain`, `types`, `schemas`
+- Find enums and constants: these define domain vocabulary (statuses, categories, roles)
+- Find error/exception types: these define domain boundaries and business rule violations
 
 Store: what entities exist, their relationships, invariants, domain-specific terms.
 
 **Ports (interfaces the domain exposes or depends on):**
-- Find abstract interfaces, contracts, traits — look for dirs named `ports`, `interfaces`, `contracts`
-- Find types named Repository, Service, Gateway, Port, Store — these are usually boundaries
+- Find abstract interfaces, contracts, traits: look for dirs named `ports`, `interfaces`, `contracts`
+- Find types named Repository, Service, Gateway, Port, Store: these are usually boundaries
 
 Store: what abstractions exist, which are inbound (driving) vs outbound (driven).
 
 **Adapters (how ports connect to the outside world):**
 
 *Inbound (drive the application):*
-- Find route/handler definitions — HTTP endpoints, GraphQL resolvers, gRPC services, CLI commands
+- Find route/handler definitions: HTTP endpoints, GraphQL resolvers, gRPC services, CLI commands
 - Find message consumers/subscribers
 - Look in dirs named `routes`, `controllers`, `handlers`, `adapters`, `api`
 
 *Outbound (driven by the application):*
-- Find persistence implementations — SQL files, ORM models, repository classes
+- Find persistence implementations: SQL files, ORM models, repository classes
 - Read latest 3-5 migration files and schema definitions
 - Find event/message publishers
 - Find external service client wrappers (HTTP clients, cloud SDK usage)
@@ -149,16 +149,16 @@ Store: entity relationships, key fields, constraints worth knowing.
 
 Each discovery → at least 1 memory summarizing findings. Nothing found → skip.
 
-### Tier 5 — Test structure and patterns
+### Tier 5: Test structure and patterns
 
 ```
 # Find test directories and config
 Glob: "tests/", "test/", "spec/", "testdata/", "fixtures/"
 
-# Read test setup — fixtures, helpers, factories, shared config
+# Read test setup: fixtures, helpers, factories, shared config
 Look for setup/helper/conftest/factory files in test dirs
 
-# Skim test names for domain concepts — just names, not implementations
+# Skim test names for domain concepts: just names, not implementations
 ```
 
 Store: test framework, fixtures/factories, DB/service strategy, parallelization.
@@ -227,15 +227,15 @@ The cost of a missing memory (user repeats themselves, agent makes wrong assumpt
 
 ### What NOT to extract
 
-- Verbatim content from CLAUDE.md or AGENTS.md — those are loaded every session. DO synthesize cross-cutting knowledge that spans multiple files into single memories.
-- Individual function signatures or line numbers — trivially re-discoverable
+- Verbatim content from CLAUDE.md or AGENTS.md. Those are loaded every session. DO synthesize cross-cutting knowledge that spans multiple files into single memories.
+- Individual function signatures or line numbers: trivially re-discoverable
 - Boilerplate from templates (default CI configs, standard Dockerfile patterns)
 - Version numbers that change frequently (pin knowledge to concepts, not versions)
 - License text, badges, marketing copy
 
 ## Step 4: Deduplicate and store
 
-**On a fresh DB (no existing memories), skip the search step entirely** — there's nothing to dedup against. Store directly. This dramatically speeds up init.
+**On a fresh DB (no existing memories), skip the search step entirely.** There's nothing to dedup against. Store directly. This dramatically speeds up init.
 
 On re-init (memories already exist), search before each store:
 
@@ -248,7 +248,7 @@ Search results?
 ├── No match         → memory_store(content, memory_type, tags)
 ├── Same info exists → SKIP (duplicate)
 ├── Outdated version → memory_supersede(old_id, new_content)
-└── Contradicts      → memory_supersede(old_id, new_content) — include what changed
+└── Contradicts      → memory_supersede(old_id, new_content), include what changed
 ```
 
 ### Pick memory_type
@@ -260,7 +260,7 @@ Search results?
 | `procedure` | Build, test, deploy, PR workflows |
 | `context` | Current project state, in-progress migrations |
 
-Do NOT use `episode` — init captures knowledge, not events.
+Do NOT use `episode`. Init captures knowledge, not events.
 
 ### Content rules
 
@@ -272,9 +272,9 @@ Good: "rekal uses three-layer architecture: MCP adapter (mcp_adapter.py) creates
       thin @mcp.tool() wrappers → SqliteDatabase dataclass holds all SQL queries.
       New tool = add method to SqliteDatabase + thin wrapper in tools/*.py."
 
-Bad:  "Three-layer architecture"          — too vague
-Bad:  "See AGENTS.md for architecture"    — not self-contained
-Bad:  "As described in the README..."     — references source
+Bad:  "Three-layer architecture"          (too vague)
+Bad:  "See AGENTS.md for architecture"    (not self-contained)
+Bad:  "As described in the README..."     (references source)
 ```
 
 ### Tags must be specific
@@ -299,7 +299,7 @@ Group related candidates. Store in logical order:
 9. Deploy and infra
 10. Key decisions (ADRs)
 
-This ordering helps if the user interrupts — domain knowledge (most valuable) lands first.
+This ordering helps if the user interrupts: domain knowledge (most valuable) lands first.
 
 ## Step 6: Verify and report
 
@@ -324,7 +324,7 @@ Summarize what was captured:
 >
 > Run `/rekal-save` at end of future sessions to maintain.
 
-## Step 7: Self-check — MANDATORY
+## Step 7: Self-check (MANDATORY)
 
 After Step 6, verify you actually executed all tiers.
 
@@ -343,13 +343,13 @@ After Step 6, verify you actually executed all tiers.
 □ CI/CD pipeline
 ```
 
-If a category doesn't exist in the codebase, skip it — only store what's actually there.
+If a category doesn't exist in the codebase, skip it. Only store what's actually there.
 
 ## Boundaries
 
 - **Read-only on the codebase.** Never modify project files.
 - **No secrets.** Skip .env files with real values. Only read .env.example.
-- **Scan source structure, not every line.** Read module entry files, model files, route files, config — not every implementation file. Use Grep to discover patterns across files efficiently.
+- **Scan source structure, not every line.** Read module entry files, model files, route files, config, not every implementation file. Use Grep to discover patterns across files efficiently.
 - **Dedup is mandatory on re-init.** On fresh DB, skip dedup.
 - **Ask before overwriting.** If existing memories conflict with what the codebase says, present both and ask which is correct.
 - **Execute all tiers.** If you only stored memories from docs and config, you skipped Tier 4. Go back.
@@ -360,7 +360,7 @@ If a category doesn't exist in the codebase, skip it — only store what's actua
 For monorepos or projects with 10+ top-level directories:
 
 1. Scan all top-level READMEs and module entry files first to build a map
-2. Process ALL areas — don't stop after one module
+2. Process ALL areas. Don't stop after one module
 3. Report progress after every 10 memories stored
 4. Only ask user to pick focus areas if 50+ top-level directories (true monorepo scale)
 

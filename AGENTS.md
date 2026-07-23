@@ -1,4 +1,4 @@
-# rekal — Agent Instructions
+# rekal: Agent Instructions
 
 ## What this project is
 
@@ -34,7 +34,7 @@ MCP Client
 - Adding a new tool = add a method to `SqliteDatabase` + add a thin tool wrapper in the appropriate `tools/*.py` file.
 - **No dynamic SQL.** SQL strings must be static literals. No f-strings, no string concatenation, no `%` formatting to build queries. Use subqueries and parameterized `?` placeholders instead.
 
-## Python style — modern, strict, no shortcuts
+## Python style: modern, strict, no shortcuts
 
 ### Never use `Any`
 
@@ -152,7 +152,7 @@ tests/
 └── test_cli.py                  # CLI commands
 ```
 
-## CI checks — all must pass
+## CI checks (all must pass)
 
 ```bash
 ruff check rekal/ tests/
@@ -163,14 +163,14 @@ pytest --cov=rekal --cov-report=term-missing --cov-fail-under=100 tests/
 
 ## Tooling config
 
-- **ruff** — lint + format, line-length 99, target py311
-- **ty** — type checker, python-version 3.11
-- **pytest** — asyncio_mode auto, 100% coverage required
+- **ruff**: lint + format, line-length 99, target py311
+- **ty**: type checker, python-version 3.11
+- **pytest**: asyncio_mode auto, 100% coverage required
 
 ## Dependencies
 
-- `mcp[cli]` — FastMCP framework
-- `aiosqlite` — async SQLite
-- `sqlite-vec` — vector search extension
-- `fastembed` — ONNX embeddings (lazy-loaded)
-- `pydantic` — models and validation
+- `mcp[cli]`: FastMCP framework
+- `aiosqlite`: async SQLite
+- `sqlite-vec`: vector search extension
+- `fastembed`: ONNX embeddings (lazy-loaded)
+- `pydantic`: models and validation

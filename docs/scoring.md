@@ -36,7 +36,7 @@ are relative knobs, not probabilities.
 |---|---|---|---|
 | **FTS (BM25)** | exact keywords, identifiers, rare tokens | synonyms, paraphrase | 0.4 |
 | **Vector (cosine)** | semantic similarity, paraphrase | exact identifiers, typos | 0.4 |
-| **Recency** | "what did we just decide" | nothing — it's a tiebreaker, not a matcher | 0.2 |
+| **Recency** | "what did we just decide" | nothing; it's a tiebreaker, not a matcher | 0.2 |
 
 Keywords and vectors cover each other's blind spots; recency breaks ties
 toward fresh knowledge without burying old facts (at 0.2 it can't
@@ -49,7 +49,7 @@ outvote a strong content match).
 Each signal is squashed to `[0, 1]`, higher = better. Functions live in
 `scoring.py`.
 
-### `normalize_fts(score)` — BM25 → [0, 1]
+### `normalize_fts(score)`: BM25 → [0, 1]
 
 ```python
 if score >= 0:
@@ -62,7 +62,7 @@ match*. The logistic `1 / (1 + e^score)` maps that to `(0, 1)`: a very
 negative score → ~1.0, a score near 0 → ~0.5, and any non-negative score
 (no real signal) is floored to 0.0.
 
-### `normalize_vec(distance)` — cosine distance → similarity
+### `normalize_vec(distance)`: cosine distance → similarity
 
 ```python
 return max(0.0, 1.0 - distance)
@@ -71,7 +71,7 @@ return max(0.0, 1.0 - distance)
 sqlite-vec returns cosine **distance** (0 = identical). Similarity is
 `1 - distance`, clamped at 0 so a distance > 1 can't go negative.
 
-### `normalize_recency(days, half_life)` — exponential decay
+### `normalize_recency(days, half_life)`: exponential decay
 
 ```python
 return math.exp(-0.693 * days / half_life)
@@ -97,20 +97,20 @@ return w.w_fts * fts + w.w_vec * vec + w.w_recency * recency
 `db.search` runs two lookups in parallel, unions the candidates, then
 scores every survivor in Python.
 
-1. **Vector lookup** — `memory_vec MATCH ? AND k = ?` with `k = limit × 3`,
+1. **Vector lookup**: `memory_vec MATCH ? AND k = ?` with `k = limit × 3`,
    ordered by distance, excluding superseded rows. Yields `{id: distance}`.
-2. **FTS lookup** — `quote_fts(query)`, then `memories_fts MATCH ?`
+2. **FTS lookup**: `quote_fts(query)`, then `memories_fts MATCH ?`
    ordered by rank, `LIMIT limit × 3`, excluding superseded. Yields
    `{id: bm25}`. Skipped entirely if the query has no usable tokens.
-3. **Union** — `candidate_ids = vec_ids ∪ fts_ids`. Empty union returns
+3. **Union**: `candidate_ids = vec_ids ∪ fts_ids`. Empty union returns
    `[]` immediately.
-4. **Fetch + filter** — for each candidate, `db.get(id)`, then drop in
+4. **Fetch + filter**: for each candidate, `db.get(id)`, then drop in
    Python on: expired (`expires_at <= now`), `project` (strict equality,
    see [gotchas](#gotchas)), `memory_type`, `tier`, `conversation_id`.
-5. **Score** — `combine_scores`, write `mem.score`.
-6. **Bump access** — `access_count += 1`, `last_accessed_at = now` for
+5. **Score**: `combine_scores`, write `mem.score`.
+6. **Bump access**: `access_count += 1`, `last_accessed_at = now` for
    every scored row.
-7. **Sort + slice** — descending by score, take `limit`.
+7. **Sort + slice**: descending by score, take `limit`.
 
 ### Why `k = limit × 3`
 
@@ -120,7 +120,7 @@ results even when most of the raw top-`limit` get filtered out. It is not
 a hard guarantee: filter aggressively enough and you get fewer than
 `limit` back.
 
-### Missing-signal defaults — the important subtlety
+### Missing-signal defaults: the important subtlety
 
 A candidate found by only one lookup still gets scored on both. The
 defaults for the *absent* signal are chosen to contribute zero, not
@@ -135,7 +135,7 @@ So a one-signal hit is never pushed *below* a row that simply lacked that
 signal; the missing term is neutral. Recency always applies (every row
 has `created_at`).
 
-### FTS query handling — `quote_fts`
+### FTS query handling (`quote_fts`)
 
 ```python
 tokens = query.replace('"', " ").replace("\x00", "").split()
@@ -151,16 +151,16 @@ semantically through the vector lookup alone.
 
 ---
 
-## Weight resolution — four layers
+## Weight resolution (four layers)
 
 `db.resolve_weights(project, *, w_fts=…, …, file_config=…)` builds the
 `ScoringWeights` for a search. Precedence, highest first:
 
 | Priority | Layer | Source | Persists? |
 |---|---|---|---|
-| 1 | Per-call overrides | explicit args to `memory_search` / `memory_build_context` | No — that query only |
-| 2 | Project config | `project_config` table, via `memory_set_config` | Yes — SQLite, across sessions |
-| 3 | File config | `.rekal/config.yml` in the project | Yes — version-controlled, shared |
+| 1 | Per-call overrides | explicit args to `memory_search` / `memory_build_context` | No, that query only |
+| 2 | Project config | `project_config` table, via `memory_set_config` | Yes, in SQLite across sessions |
+| 3 | File config | `.rekal/config.yml` in the project | Yes, version-controlled and shared |
 | 4 | Hardcoded defaults | `ScoringWeights` field defaults | Always: 0.4 / 0.4 / 0.2 / 30.0 |
 
 Implementation:
@@ -170,7 +170,7 @@ merged = ChainMap(per_call, project_config, file_defaults)
 return ScoringWeights.model_validate(merged)
 ```
 
-Layers 1–3 merge through a `ChainMap`; pydantic supplies layer 4 for any
+Layers 1-3 merge through a `ChainMap`; pydantic supplies layer 4 for any
 key still missing and coerces DB/YAML strings to floats. Resolution is
 **per-key independent**: `.rekal/config.yml` can set `w_fts` while the
 project config overrides only `half_life`, and each key takes its
@@ -210,12 +210,12 @@ only their ratios matter.
 
 | Symptom | Try |
 |---|---|
-| Search misses obvious keyword/identifier matches | raise `w_fts` (e.g. 0.6) — favor exact tokens |
-| Search misses paraphrases / synonyms | raise `w_vec` — favor semantics |
+| Search misses obvious keyword/identifier matches | raise `w_fts` (e.g. 0.6) to favor exact tokens |
+| Search misses paraphrases / synonyms | raise `w_vec` to favor semantics |
 | Stale facts rank above current ones | raise `w_recency` and/or lower `half_life` |
-| Fast-moving project (decisions churn weekly) | `half_life: 7–14` so week-old memories halve |
-| Stable knowledge base (long-lived facts) | `half_life: 60–90`, keep `w_recency` low |
-| Recency drowning out strong matches | lower `w_recency` (≤ 0.15) — it should tiebreak, not decide |
+| Fast-moving project (decisions churn weekly) | `half_life: 7-14` so week-old memories halve |
+| Stable knowledge base (long-lived facts) | `half_life: 60-90`, keep `w_recency` low |
+| Recency drowning out strong matches | lower `w_recency` (≤ 0.15); it should tiebreak, not decide |
 
 Set team-wide defaults in `.rekal/config.yml` (committed). Use
 `memory_set_config` for a per-project override that shouldn't be in the
