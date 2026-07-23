@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import sys
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -16,6 +17,8 @@ import typer
 from rekal import hooks
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from rekal.adapters.sqlite_adapter import SqliteDatabase
     from rekal.models import MemoryResult, MemoryType
 
@@ -43,8 +46,9 @@ def get_db_path(db: str | None) -> str:
     return db or os.environ.get("REKAL_DB_PATH") or default_db_path()
 
 
-async def open_db(db_path: str) -> SqliteDatabase:
-    """Open the memory DB, exiting 1 if the file is missing.
+@asynccontextmanager
+async def open_db(db_path: str) -> AsyncIterator[SqliteDatabase]:
+    """Open the memory DB for a command, exiting 1 if the file is missing.
 
     The embedder/sqlite-adapter imports are deferred inside this helper so the
     hook CLI path (which never opens a DB for health/export/prune) stays light.
@@ -55,7 +59,8 @@ async def open_db(db_path: str) -> SqliteDatabase:
     if not Path(db_path).exists():
         print(f"Database not found: {db_path}")
         sys.exit(1)
-    return await SqliteDatabase.create(db_path, FastEmbedder())
+    async with SqliteDatabase.session(db_path, FastEmbedder()) as db:
+        yield db
 
 
 async def run_serve() -> None:  # pragma: no cover — interactive stdio server
@@ -65,22 +70,16 @@ async def run_serve() -> None:  # pragma: no cover — interactive stdio server
 
 
 async def run_health(db_path: str) -> None:
-    db = await open_db(db_path)
-    try:
+    async with open_db(db_path) as db:
         report = await db.memory_health()
         print(json.dumps(report.model_dump(), indent=2))
-    finally:
-        await db.close()
 
 
 async def run_export(db_path: str) -> None:
-    db = await open_db(db_path)
-    try:
+    async with open_db(db_path) as db:
         memories = await db.memory_timeline(limit=100_000)
         data = [m.model_dump() for m in memories]
         print(json.dumps(data, indent=2))
-    finally:
-        await db.close()
 
 
 def render_recall(memories: list[MemoryResult], *, project: str | None, fmt: RecallFormat) -> str:
@@ -108,8 +107,7 @@ async def recall_memories(
     from rekal.config import find_config_file, load_file_config
     from rekal.embeddings import FastEmbedder
 
-    db = await SqliteDatabase.create(db_path, FastEmbedder())
-    try:
+    async with SqliteDatabase.session(db_path, FastEmbedder()) as db:
         if query:
             # Query path embeds the query and runs the durable-tier hybrid
             # search directly; build_context would also compute scratch,
@@ -122,8 +120,6 @@ async def recall_memories(
             )
         # No query (session start): recency-ordered, no embedding load.
         return await db.memory_timeline(project=project, limit=limit)
-    finally:
-        await db.close()
 
 
 async def run_recall(
@@ -168,8 +164,7 @@ async def run_prune(
         )
         sys.exit(2)
 
-    db = await open_db(db_path)
-    try:
+    async with open_db(db_path) as db:
         count, _ = await db.prune(
             project=project,
             memory_type=memory_type,
@@ -200,8 +195,6 @@ async def run_prune(
             dry_run=False,
         )
         print(f"Deleted {deleted_count} memories.")
-    finally:
-        await db.close()
 
 
 @app.callback()

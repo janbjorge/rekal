@@ -41,13 +41,10 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
     default_project = os.environ.get("REKAL_PROJECT")
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     embed = FastEmbedder()
-    db = await SqliteDatabase.create(db_path, embed, dimensions=embed.dimensions)
-    await db.sweep_expired()
-    file_config = load_file_config(find_config_file())
-    try:
+    async with SqliteDatabase.session(db_path, embed, dimensions=embed.dimensions) as db:
+        await db.sweep_expired()
+        file_config = load_file_config(find_config_file())
         yield AppContext(db=db, default_project=default_project, file_config=file_config)
-    finally:
-        await db.close()
 
 
 INSTRUCTIONS = """\
