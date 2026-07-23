@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/session-start.py"
+            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook session-start"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/user-prompt-submit.py"
+            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook user-prompt-submit"
           }
         ]
       }
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/block-memory-writes.py"
+            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook block-memory-writes"
           }
         ],
         "matcher": "Edit|Write"
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/handlers/redirect-memory-reads.py"
+            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook redirect-memory-reads"
           }
         ],
         "matcher": "Read"

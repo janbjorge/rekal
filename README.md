@@ -27,7 +27,7 @@ All state is a single file: `~/.rekal/memory.db`. No daemon, no cloud, no API ke
 
 ```bash
 uv tool install rekal                            # 1. install rekal (or: pip install rekal)
-claude mcp add --scope user rekal -- rekal       # 2. register the MCP server (all projects)
+claude mcp add --scope user rekal -- rekal mcp       # 2. register the MCP server (all projects)
 claude plugin marketplace add janbjorge/rekal    # 3. add the plugin marketplace
 claude plugin install rekal-skills@rekal         # 4. install the plugin
 ```
@@ -53,7 +53,7 @@ Three steps: add the MCP server, install the plugin, and disable built-in memory
 **1. Add the MCP server.** This gives Claude Code the memory tools:
 
 ```bash
-claude mcp add --scope user rekal -- rekal
+claude mcp add --scope user rekal -- rekal mcp
 ```
 
 `--scope user` registers rekal for all your projects. Without it, `claude mcp add` defaults to local scope and the server loads only in the project where you ran it ([MCP scopes](https://code.claude.com/docs/en/mcp#mcp-installation-scopes)), and memory should follow you everywhere. The `--` separates Claude Code's own flags from the command that launches the server; stdio is the default transport.
@@ -91,8 +91,8 @@ claude plugin install rekal-skills@rekal
 
 | Hook | Event | What it does |
 |------|-------|-------------|
-| session-start | `SessionStart` | Runs `rekal recall` and injects the recalled memories, plus a directive that memory lives only in rekal |
-| user-prompt-submit | `UserPromptSubmit` | Runs `rekal recall --query <prompt>` and injects the top matches for the turn, plus the same directive, so recall follows what you just asked as context grows |
+| session-start | `SessionStart` | `rekal hook session-start` recalls recency-ordered memories in-process and injects them, plus a directive that memory lives only in rekal |
+| user-prompt-submit | `UserPromptSubmit` | `rekal hook user-prompt-submit` recalls memories matching the submitted prompt (hybrid search) and injects the top matches, plus the same directive, so recall follows what you just asked as context grows |
 | pre-compact | `PreCompact` (auto) | Runs a subagent that saves durable facts to rekal before context is compacted, so nothing is lost to summarization |
 | session-end | `SessionEnd` | Runs a subagent that saves durable facts to rekal when the session ends |
 | block-memory-writes | `PreToolUse` on Edit/Write | Denies writes to flat-file memory (MEMORY.md/.txt, memories.*) with a reason redirecting to rekal tools |
@@ -110,11 +110,10 @@ claude plugin install rekal-skills@rekal
 </details>
 
 <details>
-<summary><b>Recall hooks: PATH and environment scoping</b></summary>
+<summary><b>Recall hooks: environment scoping</b></summary>
 
-The recall hooks shell out to the `rekal` CLI (`rekal recall`), which adds two requirements beyond installing the MCP server:
+The recall hooks run `uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook <event>`, so they use the plugin's own rekal install (`uv` must be available) and recall runs in-process — no separate `rekal` on the PATH is required. Recall never blocks a session: a missing DB, load error, or empty result degrades to injecting the directive alone.
 
-- **`rekal` must be on the hook's PATH, and current.** The `recall` subcommand ships alongside these hooks. If `rekal` is not on the PATH Claude Code gives its hook subprocesses, or predates that subcommand, recall injects nothing that turn. You still get the directive and nothing errors, but no memory loads. When updating, move the CLI and the plugin together (see [Updating](#updating)).
 - **Project and database scoping belong in your shell or settings env, not the MCP `env` block.** `REKAL_PROJECT` and `REKAL_DB_PATH` set under the MCP server's `env` apply only to the MCP server process. The recall hook is a separate subprocess and does not inherit them, so it would read the default database with no project scope while the MCP tools use your configured scope. Set these in your shell environment or in Claude Code `settings.json` `env` so both the server and the hooks see the same values.
 
 </details>
@@ -128,6 +127,7 @@ Add to `~/.codex/config.toml` ([Codex MCP docs](https://developers.openai.com/co
 ```toml
 [mcp_servers.rekal]
 command = "rekal"
+args = ["mcp"]
 
 # optional: scope all memories to a project automatically
 [mcp_servers.rekal.env]
@@ -164,7 +164,7 @@ Add to `opencode.jsonc` in your project root ([OpenCode MCP docs](https://openco
   "mcp": {
     "rekal": {
       "type": "local",
-      "command": ["rekal"],
+      "command": ["rekal", "mcp"],
       "enabled": true,
       "environment": {
         "REKAL_PROJECT": "my-project"
@@ -355,14 +355,14 @@ Full ranking reference, covering normalization, candidate retrieval, weight reso
 
 ### Session starts with no memory injected
 
-The `SessionStart` and `UserPromptSubmit` hooks run `rekal recall` and inject the results, so memory should be present without the agent calling a tool. If nothing shows up, the hook cannot reach the CLI: confirm `rekal` is on the PATH Claude Code gives its hooks and is new enough to have the `recall` subcommand (`rekal recall --help`), and that any `REKAL_PROJECT` / `REKAL_DB_PATH` you rely on is set where the hook subprocess sees it (shell or `settings.json` `env`, not the MCP `env` block). See [Recall hooks: PATH and environment scoping](#setup-for-claude-code).
+The `SessionStart` and `UserPromptSubmit` hooks recall memory in-process (`rekal hook <event>`) and inject it, so memory should be present without the agent calling a tool. If nothing shows up, confirm `uv` is available to Claude Code's hook subprocesses, and that any `REKAL_PROJECT` / `REKAL_DB_PATH` you rely on is set where the hook subprocess sees it (shell or `settings.json` `env`, not the MCP `env` block). See [Recall hooks: environment scoping](#setup-for-claude-code).
 
 ### Memories not being stored
 
 Check the MCP server is running: `claude mcp list` should show `rekal`. If missing:
 
 ```bash
-claude mcp add --scope user rekal -- rekal
+claude mcp add --scope user rekal -- rekal mcp
 ```
 
 ### Hooks or skills missing after a plugin update
@@ -372,7 +372,8 @@ Claude Code may serve a stale plugin cache. Clear it and reinstall (see [Update 
 ## CLI
 
 ```bash
-rekal serve    # Run as MCP server (default)
+rekal mcp      # Run the stdio MCP server (what Claude Code connects to)
+rekal recall   # Print memories for hook context injection (--query, --project, --format)
 rekal health   # Database health report
 rekal export   # Export all memories as JSON
 rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
@@ -388,12 +389,13 @@ rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
 ```
 Plugin (hooks + skills)
   │
-  ├── hooks/
-  │   ├── handlers/session-start.py        ← SessionStart: inject recalled memory
-  │   ├── handlers/user-prompt-submit.py   ← UserPromptSubmit: inject query-relevant memory
-  │   ├── handlers/block-memory-writes.py  ← PreToolUse: redirect MEMORY.md writes to rekal
-  │   ├── handlers/redirect-memory-reads.py ← PreToolUse: redirect MEMORY.md reads to rekal
-  │   └── handlers/shared.py               ← shared path predicate, recall CLI, inject helpers
+  ├── hooks/hooks.json    ← wires each event to `uv run … rekal hook <event>`
+  │       SessionStart          → rekal hook session-start        (inject recency recall + directive)
+  │       UserPromptSubmit      → rekal hook user-prompt-submit   (inject query recall + directive)
+  │       PreCompact / SessionEnd → agent hooks that auto-persist durable facts
+  │       PreToolUse Edit|Write → rekal hook block-memory-writes  (redirect MEMORY.md writes)
+  │       PreToolUse Read       → rekal hook redirect-memory-reads (redirect MEMORY.md reads)
+  │   (handler logic lives in rekal/hooks.py + rekal/__main__.py, not standalone scripts)
   │
   └── skills/
       ├── rekal-init/    ← /rekal-init: bootstrap project knowledge

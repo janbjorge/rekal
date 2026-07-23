@@ -149,7 +149,8 @@ tests/
 ├── test_smart_write_tools.py    # MCP tool wrappers for smart_write
 ├── test_conversation_tools.py   # MCP tool wrappers for conversations
 ├── test_mcp_adapter.py          # Lifespan test
-└── test_cli.py                  # CLI commands
+├── test_cli.py                  # CLI commands (rekal mcp/recall/health/export/prune)
+└── test_hooks.py                # rekal hook <event> handlers
 ```
 
 ## CI checks (all must pass)

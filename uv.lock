@@ -1375,6 +1375,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "sqlite-vec" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -1395,6 +1396,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "sqlite-vec", specifier = ">=0.1.6" },
+    { name = "typer", specifier = ">=0.24.0" },
 ]
 
 [package.metadata.requires-dev]
