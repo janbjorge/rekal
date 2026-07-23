@@ -80,7 +80,15 @@ Key = tuple[str, str, str]  # (pair, role, arm)
 
 # Read-only tool allowlist so exploration never hits a permission prompt.
 COLD_TOOLS = "Read,Grep,Glob,Bash(rg:*),Bash(fd:*),Bash(cat:*),Bash(head:*),Bash(wc:*)"
-WARM_TOOLS = COLD_TOOLS + ",mcp__rekal__*"
+# Measured warm runs may only RECALL, never write. A memory_store call during a
+# measured run is pure overhead absent from the cold arm — it burns a turn (and,
+# against a frozen seed DB, fails), inflating warm token counts and confounding
+# the comparison. The rekal MCP server's own system prompt nudges the agent to
+# "store as you work", so store must be gated out at the allowlist, not merely
+# left unrequested. Only the `learn` pass (which builds the seed DB) gets write.
+RECALL_TOOLS = "mcp__rekal__memory_build_context,mcp__rekal__memory_search"
+WARM_TOOLS = COLD_TOOLS + "," + RECALL_TOOLS
+LEARN_TOOLS = WARM_TOOLS + ",mcp__rekal__memory_store"
 # Flags every headless invocation shares, regardless of arm.
 HEADLESS = ["--no-session-persistence", "--permission-mode", "dontAsk"]
 
@@ -234,7 +242,9 @@ class RunResult:
         return self.input_tokens + self.output_tokens + self.cache_read + self.cache_creation
 
 
-def build_cmd(arm: str, repo: str, question: str) -> tuple[list[str], dict[str, str]]:
+def build_cmd(
+    arm: str, repo: str, question: str, *, store: bool = False
+) -> tuple[list[str], dict[str, str]]:
     """Assemble the headless claude argv + full env for one arm.
 
     Every arm shares one authenticated config dir (CLAUDE_CONFIG_DIR=WARM_CFG)
@@ -242,9 +252,9 @@ def build_cmd(arm: str, repo: str, question: str) -> tuple[list[str], dict[str, 
     cold adds nothing (--strict-mcp-config with no --mcp-config = zero MCP, no
     hooks); the warm arms layer on the recall hooks (--settings hooks.json) and
     the rekal MCP server, differing from each other only in which DB
-    REKAL_DB_PATH points at (empty vs this repo's frozen seed). `learn` reuses
-    the warm-seed shape verbatim — "store-on" is carried by the prompt, not a
-    distinct command.
+    REKAL_DB_PATH points at (empty vs this repo's frozen seed). Measured warm
+    runs get a recall-only allowlist; `learn` passes store=True to also expose
+    memory_store, since building the seed DB is the one pass that must write.
 
     `--bare` is deliberately NOT used: it disables subscription auth, so a
     headless run under it always comes back "Not logged in". Isolation to a
@@ -272,7 +282,7 @@ def build_cmd(arm: str, repo: str, question: str) -> tuple[list[str], dict[str, 
         "--settings",
         str(WARM_CFG / "hooks.json"),
         "--allowedTools",
-        WARM_TOOLS,
+        LEARN_TOOLS if store else WARM_TOOLS,
     ]
     return argv, env | {"REKAL_DB_PATH": str(db)}
 
@@ -508,8 +518,9 @@ def learn(repo: str) -> None:
             "non-obvious fact you learned about this subsystem so a future "
             "session can recall it without re-reading the code."
         )
-        # warm-seed shape targets this repo's seed DB; the prompt turns store on.
-        argv, env = build_cmd(Arm.WARM_SEED, repo, prompt)
+        # warm-seed shape targets this repo's seed DB; store=True exposes the
+        # write tool (measured runs don't get it) and the prompt turns it on.
+        argv, env = build_cmd(Arm.WARM_SEED, repo, prompt, store=True)
         before = mem_count(seed)
         print(f"\nlearning {q['pair']} ...", flush=True)
         rr = RunResult(repo=repo, arm="learn", pair=q["pair"], role=Role.SEED, run=0)
