@@ -18,7 +18,7 @@ MCP Client
                             │
                     sqlite_adapter.py ← SqliteDatabase @dataclass, ALL SQL lives here
                             │
-                            ├── SQLite (memories, conversations, tags, conflicts)
+                            ├── SQLite (memories: content, project, tags, timestamps)
                             ├── FTS5 (full-text index, auto-synced via triggers)
                             └── sqlite-vec (vector index)
 ```

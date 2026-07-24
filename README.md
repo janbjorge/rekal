@@ -217,7 +217,7 @@ cheap in the agent's context and leaves no ambiguity about which tool to call:
 
 | Tool | Purpose |
 |------|---------|
-| `memory_build_context` | Recall: hybrid search returning memories, conflicts, and a timeline summary. Results below the relevance floor (`min_score`, default 0.25) are dropped |
+| `memory_build_context` | Recall: hybrid search over stored memories. Results below the relevance floor (`min_score`, default 0.25) are dropped |
 | `memory_store` | Store a distilled durable memory with project and tags. Pass `replaces=<old_id>` to update an existing memory instead of creating a near-duplicate |
 | `memory_delete` | Remove a memory by ID |
 
@@ -237,30 +237,25 @@ Admin operations live in the CLI, not the tool surface:
 
 ### Storage
 
-Everything lives in `~/.rekal/memory.db`. Three subsystems share it:
-
-- **memories table**: content, type, project, tags, timestamps, access counts, plus `tier` (`durable` or `scratch`) and optional `expires_at`
-- **FTS5 virtual table**: full-text index over content+tags+project, auto-synced via triggers
-- **sqlite-vec virtual table**: 384-dimensional vector index for semantic search
-
-Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_store(replaces=<old_id>)` writes the new memory and creates a `supersedes` link in a single operation, so old knowledge stays queryable with explicit lineage.
-
-**Tiers.** Durable memories live forever; scratch memories carry an `expires_at` and are hard-deleted on server start once past their TTL. Search, timeline, and topics hide expired scratch entries automatically. Use scratch for in-flight hypotheses and working notes that should not pollute the durable store.
-
-### Data model
-
-One table does the work; everything else hangs off it.
+Everything lives in `~/.rekal/memory.db`. Three tables share it:
 
 | Table | Holds |
 |---|---|
-| `memories` | the atomic unit: content + `memory_type` (semantic) + `tier` (lifecycle) + scope, provenance, tags |
-| `memories_fts` | FTS5 keyword index, trigger-synced to `memories` |
+| `memories` | the atomic unit: content + project scope + tags + timestamps |
+| `memories_fts` | FTS5 keyword index over content+tags+project, trigger-synced |
 | `memory_vec` | sqlite-vec 384-dim embedding, 1:1 with `memories` (synced in Python, no trigger) |
-| `memory_links` | memory→memory graph: `supersedes` / `contradicts` / `related_to` |
-| `conversations` + `conversation_links` | session threads and their graph |
-| `project_config` | per-project scoring-weight overrides |
 
-A memory has three orthogonal axes: **type** (fact / preference / procedure / context / episode), **tier** (durable, or scratch with a TTL), and **links** (the graph). The full schema, covering every column, trigger, foreign-key note, and query lifecycle, lives in [docs/data-model.md](docs/data-model.md).
+`memory_store(replaces=<old_id>)` stores the new memory and deletes the old
+one in a single operation: one topic, one memory, no stale versions
+lingering in search.
+
+The schema is deliberately minimal. Earlier versions carried conversation
+graphs, memory links, a scratch tier, memory types, and access counters;
+benchmarks showed the structure cost tokens (fatter payloads, fatter
+instructions) without earning them back. The full schema and the
+auto-migration from older databases live in
+[docs/data-model.md](docs/data-model.md) — existing DBs migrate in place
+on first open, keeping content and embeddings.
 
 ### Embeddings
 
@@ -373,14 +368,11 @@ MCP Server (rekal)
   │
   mcp_adapter.py          ← FastMCP server, lifespan, instructions
   │
-  ├── tools/core.py       ─┐
-  ├── tools/introspection.py│─ thin @mcp.tool() wrappers
-  ├── tools/smart_write.py  │
-  └── tools/conversations.py┘
+  └── tools/core.py       ← the 3 tools (build_context, store, delete)
                             │
                     sqlite_adapter.py ← all SQL lives here
                             │
-                            ├── SQLite (memories, conversations, tags, conflicts)
+                            ├── SQLite (memories: content, project, tags, timestamps)
                             ├── FTS5 (full-text index)
                             └── sqlite-vec (vector index)
 ```

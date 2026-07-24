@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from rekal.adapters.mcp_adapter import find_config_file, load_file_config
-from rekal.adapters.sqlite_adapter import SqliteDatabase
+from rekal.scoring import resolve_weights
 
 # ── find_config_file ─────────────────────────────────────────────────
 
@@ -57,21 +57,17 @@ def test_load_file_config_rejects_non_numeric_values() -> None:
 # ── resolve_weights with file_config ─────────────────────────────────
 
 
-async def test_resolve_weights_file_config_used(db: SqliteDatabase) -> None:
-    file_cfg = {"w_fts": 0.6, "half_life": 7.0}
-    weights = await db.resolve_weights(None, file_config=file_cfg)
+def test_resolve_weights_file_config_used() -> None:
+    weights = resolve_weights({"w_fts": 0.6, "half_life": 7.0})
     assert weights.w_fts == 0.6
     assert weights.half_life == 7.0
-    assert weights.w_vec == 0.4
+    assert weights.w_vec == 0.4  # default fills the gap
     assert weights.w_recency == 0.2
 
 
-async def test_resolve_weights_full_precedence_chain(db: SqliteDatabase) -> None:
-    """All four layers: per-call > DB > file > hardcoded defaults."""
-    await db.set_config("proj", "w_vec", "0.9")
-    file_cfg = {"w_fts": 0.6, "w_vec": 0.5, "half_life": 7.0}
-    weights = await db.resolve_weights("proj", w_fts=0.1, file_config=file_cfg)
-    assert weights.w_fts == 0.1  # per-call
-    assert weights.w_vec == 0.9  # DB beats file
-    assert weights.half_life == 7.0  # file
-    assert weights.w_recency == 0.2  # hardcoded default
+def test_resolve_weights_defaults() -> None:
+    weights = resolve_weights(None)
+    assert weights.w_fts == 0.4
+    assert weights.w_vec == 0.4
+    assert weights.w_recency == 0.2
+    assert weights.half_life == 30.0

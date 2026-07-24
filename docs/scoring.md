@@ -98,24 +98,22 @@ return w.w_fts * fts + w.w_vec * vec + w.w_recency * recency
 scores every survivor in Python.
 
 1. **Vector lookup**: `memory_vec MATCH ? AND k = ?` with `k = limit × 3`,
-   ordered by distance, excluding superseded rows. Yields `{id: distance}`.
+   ordered by distance. Yields `{id: distance}`.
 2. **FTS lookup**: `quote_fts(query)`, then `memories_fts MATCH ?`
-   ordered by rank, `LIMIT limit × 3`, excluding superseded. Yields
-   `{id: bm25}`. Skipped entirely if the query has no usable tokens.
+   ordered by rank, `LIMIT limit × 3`. Yields `{id: bm25}`. Skipped
+   entirely if the query has no usable tokens.
 3. **Union**: `candidate_ids = vec_ids ∪ fts_ids`. Empty union returns
    `[]` immediately.
 4. **Fetch + filter**: for each candidate, `db.get(id)`, then drop in
-   Python on: expired (`expires_at <= now`), `project` (strict equality,
-   see [gotchas](#gotchas)), `memory_type`, `tier`, `conversation_id`.
-5. **Score**: `combine_scores`, write `mem.score`.
-6. **Bump access**: `access_count += 1`, `last_accessed_at = now` for
-   every scored row.
-7. **Sort + slice**: descending by score, take `limit`.
+   Python on `project` (strict equality, see [gotchas](#gotchas)).
+5. **Score**: `combine_scores`; drop rows below `min_score`; write
+   `mem.score`.
+6. **Sort + slice**: descending by score, take `limit`.
 
 ### Why `k = limit × 3`
 
 Both lookups over-fetch 3× because filtering happens *after* retrieval.
-A heavily project- or tier-filtered query can still surface `limit`
+A heavily project-filtered query can still surface `limit`
 results even when most of the raw top-`limit` get filtered out. It is not
 a hard guarantee: filter aggressively enough and you get fewer than
 `limit` back.
@@ -209,9 +207,9 @@ Set team-wide defaults in `.rekal/config.yml` (committed).
   global (NULL-project) memories; `project="x"` matches only `"x"`. There
   is no "global + project" union and no fallback. This is deliberate, to
   stop cross-project bleed.
-- **Recency uses `created_at` only.** `updated_at` and `last_accessed_at`
-  are recorded but ignored by scoring. Editing a memory does not refresh
-  its recency.
+- **Recency uses `created_at` only.** `updated_at` is recorded but ignored
+  by scoring. Replacing a memory (`memory_store(replaces=...)`) creates a
+  new row, so replacement DOES refresh recency.
 - **BM25 sign.** FTS5 ranks are negative (lower = better); any
   non-negative rank normalizes to 0.0. Don't expect raw BM25 to be a
   similarity.
@@ -221,8 +219,9 @@ Set team-wide defaults in `.rekal/config.yml` (committed).
   layer); results scoring below it are dropped before the limit cut. The
   MCP tools and hook injection default to `min_score=0.25` so weak hits
   don't ride along into context. Pass `min_score=0.0` to see everything.
-- **Superseded rows never appear.** Both lookups exclude
-  `to_id`s of `supersedes` links at the SQL layer, before scoring.
+- **Replaced rows never appear.** `memory_store(replaces=<old_id>)`
+  deletes the old row outright — there is no superseded-but-lingering
+  state.
 - **All FTS tokens must match.** `quote_fts` AND-s tokens; the vector
   lookup is what rescues loosely-worded queries.
 
@@ -235,4 +234,4 @@ Set team-wide defaults in `.rekal/config.yml` (committed).
 - Weight resolution: `rekal/adapters/sqlite_adapter.py` → `resolve_weights`
 - File config loader: `rekal/adapters/mcp_adapter.py` → `load_file_config`, `find_config_file`
 - FTS sanitizer: `rekal/adapters/sqlite_adapter.py` → `quote_fts`
-- Schema (indexes, tiers, supersede links): [docs/data-model.md](data-model.md)
+- Schema: [docs/data-model.md](data-model.md)

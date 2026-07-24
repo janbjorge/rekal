@@ -6,6 +6,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from pydantic import Field
 
 from rekal.models import CompactContext
+from rekal.scoring import resolve_weights
 
 
 def resolve_project(ctx: Context, project: str | None) -> str | None:
@@ -25,11 +26,10 @@ async def memory_build_context(
         Field(description="Drop results scoring below this relevance floor (0.0-1.0)."),
     ] = 0.25,
 ) -> CompactContext:
-    """Recall memories relevant to a query, with conflicts and a timeline summary."""
+    """Recall memories relevant to a query via hybrid FTS + vector + recency search."""
     db = ctx.request_context.lifespan_context.db
     resolved_project = resolve_project(ctx, project)
-    file_config = ctx.request_context.lifespan_context.file_config
-    weights = await db.resolve_weights(resolved_project, file_config=file_config)
+    weights = resolve_weights(ctx.request_context.lifespan_context.file_config)
     result = await db.build_context(
         query,
         project=resolved_project,
@@ -60,7 +60,7 @@ async def memory_store(
     db = ctx.request_context.lifespan_context.db
     resolved_project = resolve_project(ctx, project)
     if replaces is not None:
-        new_id = await db.supersede(replaces, content, project=resolved_project, tags=tags)
+        new_id = await db.replace(replaces, content, project=resolved_project, tags=tags)
         return f"Stored memory {new_id} (replaces {replaces})"
     memory_id = await db.store(content, project=resolved_project, tags=tags)
     return f"Stored memory {memory_id}"

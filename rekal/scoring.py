@@ -15,6 +15,16 @@ class ScoringWeights(BaseModel, frozen=True):
     half_life: float = 30.0
 
 
+def resolve_weights(file_config: dict[str, float] | None = None) -> ScoringWeights:
+    """Weights from ``.rekal/config.yml`` values, defaults filling the gaps.
+
+    Resolution is per-key: a config file setting only ``w_fts`` keeps the
+    defaults for everything else. The tool surface exposes no weight
+    parameters — tuning is a config concern, not an agent decision.
+    """
+    return ScoringWeights.model_validate(file_config or {})
+
+
 @dataclass
 class RawScores:
     fts_score: float = 0.0

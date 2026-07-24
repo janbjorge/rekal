@@ -14,7 +14,7 @@ You have persistent memory via three rekal MCP tools. Follow these rules exactly
 
 | tool | purpose |
 |------|---------|
-| `memory_build_context(query, project?, limit?, min_score?)` | recall: memories + conflicts + timeline in one call |
+| `memory_build_context(query, project?, limit?, min_score?)` | recall: hybrid search over stored memories |
 | `memory_store(content, project?, tags?, replaces?)` | persist one distilled fact; `replaces=<old_id>` updates an existing one |
 | `memory_delete(memory_id)` | remove a memory that is wrong or obsolete |
 

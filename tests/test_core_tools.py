@@ -70,8 +70,9 @@ async def test_memory_store_tool_replaces(db: SqliteDatabase) -> None:
     context = await memory_build_context(_ctx(db), "deploy pipeline")
     contents = [m.content for m in context.memories]
     assert "New fact about the deploy pipeline" in contents
-    # The superseded memory no longer surfaces in recall.
+    # The replaced memory is gone entirely.
     assert "Old fact about the deploy pipeline" not in contents
+    assert await db.get(old) is None
 
 
 async def test_memory_store_tool_replaces_missing_id(db: SqliteDatabase) -> None:
@@ -94,7 +95,6 @@ async def test_memory_build_context_tool(db: SqliteDatabase) -> None:
     await db.store("Context about Python")
     result = await memory_build_context(_ctx(db), "Python")
     assert result.query == "Python"
-    assert result.timeline_summary
     assert len(result.memories) == 1
 
 
@@ -108,7 +108,6 @@ async def test_memory_build_context_tool_compact_shape(db: SqliteDatabase) -> No
     # Bookkeeping fields are dropped from the compact projection entirely.
     for absent in ("access_count", "last_accessed_at", "updated_at", "tier", "expires_at"):
         assert absent not in CompactMemory.model_fields
-    assert result.conflicts is None  # empty collapses to None
 
 
 async def test_memory_build_context_tool_compact_none_when_unset(db: SqliteDatabase) -> None:
@@ -125,27 +124,6 @@ async def test_memory_build_context_tool_min_score_filters(db: SqliteDatabase) -
     nothing = await memory_build_context(_ctx(db), "Haskell", min_score=1.0)
     assert len(everything.memories) > 0
     assert nothing.memories == []
-
-
-async def test_memory_build_context_tool_includes_scratch(db: SqliteDatabase) -> None:
-    future = "2999-12-31 23:59:59"
-    await db.store("durable Go note")
-    scratch_id = await db.store("scratch Go note", tier="scratch", expires_at=future)
-
-    result = await memory_build_context(_ctx(db), "Go")
-    assert result.scratch is not None
-    assert scratch_id in {m.id for m in result.scratch}
-    assert scratch_id not in {m.id for m in result.memories}
-
-
-async def test_memory_build_context_tool_includes_conflicts(db: SqliteDatabase) -> None:
-    mid1 = await db.store("Tabs are better for indentation")
-    mid2 = await db.store("Spaces are better for indentation")
-    await db.add_memory_link(mid1, mid2, "contradicts")
-
-    result = await memory_build_context(_ctx(db), "indentation")
-    assert result.conflicts is not None
-    assert len(result.conflicts) >= 1
 
 
 async def test_memory_build_context_tool_uses_file_config(db: SqliteDatabase) -> None:
