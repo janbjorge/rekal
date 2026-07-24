@@ -7,7 +7,7 @@ description: >
   rekal on a new project, or when user says "init rekal", "bootstrap memory",
   "populate rekal", "scan project". Trigger: /rekal-init.
 disable-model-invocation: true
-allowed-tools: Read Glob Grep mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_set_project mcp__rekal__memory_health mcp__rekal__memory_conflicts
+allowed-tools: Read Glob Grep mcp__rekal__memory_build_context mcp__rekal__memory_store Bash(rekal:*)
 ---
 
 Bootstrap rekal memory from a codebase. Goal: a fresh agent in a new session has enough context to work effectively without the user repeating themselves.
@@ -26,19 +26,15 @@ Common failure: agent reads docs + config, stores ~20 memories, skips source cod
 
 ## Step 0: Pre-flight
 
-```python
-memory_health()
+```bash
+rekal health
 ```
 
 Report current state. If the project already has memories, warn and wait for confirmation. For a fresh database, continue automatically.
 
 ## Step 1: Identify the project
 
-Determine the project name from the working directory, git remote, or config files. Prefer short, lowercase names: `rekal`, `backend`, `myapp`.
-
-```python
-memory_set_project(project="<name>")
-```
+Determine the project name from the working directory, git remote, or config files. Prefer short, lowercase names: `rekal`, `backend`, `myapp`. Pass it as `project="<name>"` on every `memory_store` call below.
 
 ## Step 2: Scan for knowledge sources
 
@@ -235,32 +231,21 @@ The cost of a missing memory (user repeats themselves, agent makes wrong assumpt
 
 ## Step 4: Deduplicate and store
 
-**On a fresh DB (no existing memories), skip the search step entirely.** There's nothing to dedup against. Store directly. This dramatically speeds up init.
+**On a fresh DB (no existing memories), skip the recall step entirely.** There's nothing to dedup against. Store directly. This dramatically speeds up init.
 
-On re-init (memories already exist), search before each store:
+On re-init (memories already exist), recall before each store:
 
 ```python
-memory_search(query="<candidate topic>", limit=5)
+memory_build_context(query="<candidate topic>")
 ```
 
 ```
-Search results?
-├── No match         → memory_store(content, memory_type, tags)
+Recall results?
+├── No match         → memory_store(content, tags, project)
 ├── Same info exists → SKIP (duplicate)
-├── Outdated version → memory_supersede(old_id, new_content)
-└── Contradicts      → memory_supersede(old_id, new_content), include what changed
+├── Outdated version → memory_store(content, replaces="<old_id>")
+└── Contradicts      → memory_store(content, replaces="<old_id>"), include what changed
 ```
-
-### Pick memory_type
-
-| Type | Use for |
-|------|---------|
-| `fact` | Architecture, stack, structure, dependencies |
-| `preference` | Coding conventions, style rules, tool choices |
-| `procedure` | Build, test, deploy, PR workflows |
-| `context` | Current project state, in-progress migrations |
-
-Do NOT use `episode`. Init captures knowledge, not events.
 
 ### Content rules
 
@@ -303,17 +288,15 @@ This ordering helps if the user interrupts: domain knowledge (most valuable) lan
 
 ## Step 6: Verify and report
 
-```python
-memory_health()
-memory_conflicts()
+```bash
+rekal health
 ```
 
 Summarize what was captured:
 
 > **rekal init complete for `myproject`:**
-> - 12 memories stored (4 fact, 3 preference, 3 procedure, 2 context)
-> - 2 existing memories superseded
-> - 0 conflicts
+> - 12 memories stored
+> - 2 existing memories replaced
 >
 > **Captured:**
 > - Architecture: three-layer MCP → tools → DB

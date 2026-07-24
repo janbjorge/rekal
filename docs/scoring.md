@@ -1,6 +1,6 @@
 # rekal scoring
 
-How `memory_search` ranks results. Keep this file in sync with
+How recall (`memory_build_context`) ranks results. Keep this file in sync with
 `rekal/scoring.py` and the `search` / `resolve_weights` methods in
 `rekal/adapters/sqlite_adapter.py`.
 
@@ -151,30 +151,22 @@ semantically through the vector lookup alone.
 
 ---
 
-## Weight resolution (four layers)
+## Weight resolution
 
-`db.resolve_weights(project, *, w_fts=…, …, file_config=…)` builds the
-`ScoringWeights` for a search. Precedence, highest first:
+`db.resolve_weights(project, *, file_config=…)` builds the
+`ScoringWeights` for a search. Precedence, highest first (the tool
+surface deliberately exposes no weight parameters; tuning is a config
+concern, not an agent decision):
 
 | Priority | Layer | Source | Persists? |
 |---|---|---|---|
-| 1 | Per-call overrides | explicit args to `memory_search` / `memory_build_context` | No, that query only |
-| 2 | Project config | `project_config` table, via `memory_set_config` | Yes, in SQLite across sessions |
-| 3 | File config | `.rekal/config.yml` in the project | Yes, version-controlled and shared |
-| 4 | Hardcoded defaults | `ScoringWeights` field defaults | Always: 0.4 / 0.4 / 0.2 / 30.0 |
+| 1 | File config | `.rekal/config.yml` in the project | Yes, version-controlled and shared |
+| 2 | Hardcoded defaults | `ScoringWeights` field defaults | Always: 0.4 / 0.4 / 0.2 / 30.0 |
 
-Implementation:
-
-```python
-merged = ChainMap(per_call, project_config, file_defaults)
-return ScoringWeights.model_validate(merged)
-```
-
-Layers 1-3 merge through a `ChainMap`; pydantic supplies layer 4 for any
-key still missing and coerces DB/YAML strings to floats. Resolution is
-**per-key independent**: `.rekal/config.yml` can set `w_fts` while the
-project config overrides only `half_life`, and each key takes its
-highest-priority source.
+Layers merge through a `ChainMap`; pydantic supplies the defaults for any
+key still missing and coerces YAML strings to floats. Resolution is
+**per-key independent**: `.rekal/config.yml` can set only `w_fts` and
+every other key takes the default.
 
 ### `.rekal/config.yml`
 
@@ -190,16 +182,6 @@ scoring:
   w_recency: 0.1
   half_life: 14.0
 ```
-
-### Per-project DB config
-
-```
-memory_set_config("w_fts", 0.6, project="my-project")
-```
-
-Stored as TEXT in `project_config`, coerced to float at resolve time.
-Only applied when the search passes a `project`; a `project=None` search
-ignores project config and falls through to file config + defaults.
 
 ---
 
@@ -217,9 +199,7 @@ only their ratios matter.
 | Stable knowledge base (long-lived facts) | `half_life: 60-90`, keep `w_recency` low |
 | Recency drowning out strong matches | lower `w_recency` (≤ 0.15); it should tiebreak, not decide |
 
-Set team-wide defaults in `.rekal/config.yml` (committed). Use
-`memory_set_config` for a per-project override that shouldn't be in the
-repo. Use per-call `w_*` args only to experiment with a single query.
+Set team-wide defaults in `.rekal/config.yml` (committed).
 
 ---
 

@@ -12,12 +12,9 @@ Python 3.11+, installed via `pip install rekal`, runs as a stdio MCP server.
 MCP Client
   │ stdio (JSON-RPC)
   │
-  mcp_adapter.py          ← FastMCP server, lifespan (creates/closes DB)
+  mcp_adapter.py          ← create_server() factory, lifespan (creates/closes DB)
   │
-  ├── tools/core.py       ─┐
-  ├── tools/introspection.py│─ thin @mcp.tool() wrappers, delegate to SqliteDatabase
-  ├── tools/smart_write.py  │
-  └── tools/conversations.py┘
+  └── tools/core.py       ← the 3 tools (build_context, store, delete) + register()
                             │
                     sqlite_adapter.py ← SqliteDatabase @dataclass, ALL SQL lives here
                             │
@@ -29,9 +26,9 @@ MCP Client
 ### Key rules
 
 - `SqliteDatabase` is a `@dataclass` holding the `aiosqlite.Connection` and ALL query methods. Every SQL statement lives here. No SQL in tool files.
-- Tool modules in `adapters/tools/` are thin wrappers. They register MCP tools via `@mcp.tool()` and call methods on `SqliteDatabase`.
-- `mcp_adapter.py` creates the FastMCP server, manages lifespan, and imports tool modules so they register.
-- Adding a new tool = add a method to `SqliteDatabase` + add a thin tool wrapper in the appropriate `tools/*.py` file.
+- `tools/core.py` holds the tool functions as plain async functions plus `register(mcp, readonly=...)`, which attaches them to a server. `REKAL_READONLY=1` registers recall only.
+- `mcp_adapter.py` exposes `create_server()`: builds the FastMCP server with the right instructions, manages lifespan, and calls `register`.
+- The MCP surface is deliberately minimal (3 tools). Admin operations (health, export, prune, recall) belong in the CLI (`rekal/__main__.py`), not new MCP tools.
 - **No dynamic SQL.** SQL strings must be static literals. No f-strings, no string concatenation, no `%` formatting to build queries. Use subqueries and parameterized `?` placeholders instead.
 
 ## Python style: modern, strict, no shortcuts
@@ -97,7 +94,6 @@ Prefer `@dataclass` over hand-written `__init__`. Pydantic `BaseModel` only wher
 Every tool parameter (except `ctx`) must have a description for the MCP schema.
 
 ```python
-@mcp.tool()
 async def memory_store(
     ctx: Context,
     content: Annotated[str, Field(description="The text content to store")],
@@ -139,16 +135,13 @@ tests/
 ├── conftest.py                  # db fixture (in-memory), deterministic_embed
 ├── test_sqlite_adapter.py       # Direct DB operations
 ├── test_search.py               # Hybrid search scoring
-├── test_introspection.py        # memory_similar, topics, timeline, etc.
-├── test_smart_write.py          # supersede, build_context
-├── test_conversations.py        # Conversation DAG operations
+├── test_introspection.py        # DB-level introspection methods
+├── test_smart_write.py          # supersede, build_context (DB level)
+├── test_conversations.py        # Conversation DAG operations (DB level)
 ├── test_scoring.py              # Score normalization math
 ├── test_embeddings.py           # Embedding utilities
-├── test_core_tools.py           # MCP tool wrappers for core
-├── test_introspection_tools.py  # MCP tool wrappers for introspection
-├── test_smart_write_tools.py    # MCP tool wrappers for smart_write
-├── test_conversation_tools.py   # MCP tool wrappers for conversations
-├── test_mcp_adapter.py          # Lifespan test
+├── test_core_tools.py           # The 3 MCP tools
+├── test_mcp_adapter.py          # Lifespan + create_server toolsets
 ├── test_cli.py                  # CLI commands (rekal mcp/recall/health/export/prune)
 └── test_hooks.py                # rekal hook <event> handlers
 ```
