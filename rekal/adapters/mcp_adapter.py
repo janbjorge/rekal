@@ -17,6 +17,7 @@ from rekal.adapters.tools import register
 # recall CLI can use them without importing this module's FastMCP server.
 from rekal.config import default_db_path, find_config_file, load_file_config
 from rekal.embeddings import FastEmbedder
+from rekal.scoring import ScoringWeights, resolve_weights
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 class AppContext:
     db: SqliteDatabase
     default_project: str | None = None
-    file_config: dict[str, float] = field(default_factory=dict)
+    weights: ScoringWeights = field(default_factory=ScoringWeights)
 
 
 @asynccontextmanager
@@ -36,8 +37,10 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     embed = FastEmbedder()
     async with SqliteDatabase.session(db_path, embed, dimensions=embed.dimensions) as db:
-        file_config = load_file_config(find_config_file())
-        yield AppContext(db=db, default_project=default_project, file_config=file_config)
+        # Weights are fixed for the server's lifetime: resolve the config
+        # file once here instead of on every recall.
+        weights = resolve_weights(load_file_config(find_config_file()))
+        yield AppContext(db=db, default_project=default_project, weights=weights)
 
 
 INSTRUCTIONS = """\

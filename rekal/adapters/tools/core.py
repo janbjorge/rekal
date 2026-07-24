@@ -6,7 +6,6 @@ from mcp.server.fastmcp import Context, FastMCP
 from pydantic import Field
 
 from rekal.models import CompactContext
-from rekal.scoring import resolve_weights
 
 
 def resolve_project(ctx: Context, project: str | None) -> str | None:
@@ -29,12 +28,11 @@ async def memory_build_context(
     """Recall memories relevant to a query via hybrid FTS + vector + recency search."""
     db = ctx.request_context.lifespan_context.db
     resolved_project = resolve_project(ctx, project)
-    weights = resolve_weights(ctx.request_context.lifespan_context.file_config)
     result = await db.build_context(
         query,
         project=resolved_project,
         limit=limit,
-        weights=weights,
+        weights=ctx.request_context.lifespan_context.weights,
         min_score=min_score,
     )
     return result.compact()

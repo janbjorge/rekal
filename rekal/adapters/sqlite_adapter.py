@@ -74,6 +74,14 @@ async def memories_columns(db: aiosqlite.Connection) -> set[str]:
     return cols
 
 
+async def has_memory_links(db: aiosqlite.Connection) -> bool:
+    """Whether the legacy memory_links table exists in this DB."""
+    async with db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_links'"
+    ) as cursor:
+        return await cursor.fetchone() is not None
+
+
 async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
     """Rebuild a pre-minimal DB into the minimal schema, preserving content.
 
@@ -93,6 +101,9 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
     if "memory_type" not in cols:
         return  # fresh DB or already minimal
 
+    # A crash mid-migration can leave an empty memories_minimal behind
+    # while the data rolls back; clear it so the retry starts clean.
+    await db.execute("DROP TABLE IF EXISTS memories_minimal")
     await db.execute(
         """
         CREATE TABLE memories_minimal (
@@ -105,6 +116,8 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
         )
         """
     )
+    # Copy first, exclude after: each legacy feature is handled by its own
+    # conditional instead of one query that assumes every table exists.
     if "tier" in cols:
         await db.execute(
             """
@@ -112,7 +125,6 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
             SELECT id, content, project, tags, created_at, updated_at
             FROM memories
             WHERE tier = 'durable'
-              AND id NOT IN (SELECT to_id FROM memory_links WHERE relation = 'supersedes')
             """
         )
     else:
@@ -122,7 +134,15 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
             INSERT INTO memories_minimal (id, content, project, tags, created_at, updated_at)
             SELECT id, content, project, tags, created_at, updated_at
             FROM memories
-            WHERE id NOT IN (SELECT to_id FROM memory_links WHERE relation = 'supersedes')
+            """
+        )
+    if await has_memory_links(db):
+        # No links table means nothing was ever superseded.
+        await db.execute(
+            """
+            DELETE FROM memories_minimal WHERE id IN (
+                SELECT to_id FROM memory_links WHERE relation = 'supersedes'
+            )
             """
         )
 
@@ -180,7 +200,7 @@ def parse_tags(tags: str | None) -> list[str]:
         return []
 
 
-def row_to_memory(row: aiosqlite.Row, score: float | None = None) -> MemoryResult:
+def row_to_memory(row: aiosqlite.Row) -> MemoryResult:
     return MemoryResult(
         id=row["id"],
         content=row["content"],
@@ -188,7 +208,6 @@ def row_to_memory(row: aiosqlite.Row, score: float | None = None) -> MemoryResul
         tags=parse_tags(row["tags"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
-        score=score,
     )
 
 
@@ -308,6 +327,11 @@ class SqliteDatabase:
         weights: ScoringWeights,
         min_score: float = 0.0,
     ) -> list[MemoryResult]:
+        """Hybrid FTS + vector + recency search.
+
+        ``min_score`` is an inclusive floor: rows scoring exactly at it
+        survive; only strictly lower scores are dropped.
+        """
         embedding = self.embed(query)
 
         # Vector search — candidate IDs + distances.
@@ -382,8 +406,8 @@ class SqliteDatabase:
         project: str | None = None,
         before: str | None = None,
         dry_run: bool = True,
-    ) -> tuple[int, list[str]]:
-        """Bulk-delete memories matching scope filters.
+    ) -> list[str]:
+        """Bulk-delete memories matching scope filters; returns matched IDs.
 
         Requires at least one of project / before to avoid an accidental
         full wipe. ``before`` is an ISO timestamp ``YYYY-MM-DD HH:MM:SS``;
@@ -407,7 +431,7 @@ class SqliteDatabase:
                 ids.append(row["id"])
 
         if dry_run or not ids:
-            return len(ids), ids
+            return ids
 
         filter_params: tuple[SqlParam, ...] = (project, project, before, before)
         await self.db.execute(
@@ -429,7 +453,7 @@ class SqliteDatabase:
             filter_params,
         )
         await self.db.commit()
-        return len(ids), ids
+        return ids
 
     async def get(self, memory_id: str) -> MemoryResult | None:
         async with self.db.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)) as cursor:

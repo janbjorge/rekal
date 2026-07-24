@@ -152,24 +152,24 @@ async def run_prune(
         sys.exit(2)
 
     async with open_db(db_path) as db:
-        count, _ = await db.prune(project=project, before=cutoff, dry_run=True)
+        matched = await db.prune(project=project, before=cutoff, dry_run=True)
         scope_parts = []
         if project is not None:
             scope_parts.append(f"project={project}")
         if cutoff is not None:
             scope_parts.append(f"before={cutoff}")
         scope = ", ".join(scope_parts)
-        print(f"Matched {count} memories ({scope}).")
+        print(f"Matched {len(matched)} memories ({scope}).")
 
         if not yes:
-            if count > 0:
+            if matched:
                 print("Dry run only. Pass --yes to delete.")
             return
-        if count == 0:
+        if not matched:
             return
 
-        deleted_count, _ = await db.prune(project=project, before=cutoff, dry_run=False)
-        print(f"Deleted {deleted_count} memories.")
+        deleted = await db.prune(project=project, before=cutoff, dry_run=False)
+        print(f"Deleted {len(deleted)} memories.")
 
 
 @app.callback()

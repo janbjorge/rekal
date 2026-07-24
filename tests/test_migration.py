@@ -268,6 +268,63 @@ async def test_migration_pre_tier_db(tmp_path: Path) -> None:
         assert mem.content == "Pre-tier row"
 
 
+async def test_migration_retries_after_interrupted_run(tmp_path: Path) -> None:
+    """A leftover memories_minimal from a crashed migration must not block the retry."""
+    path = tmp_path / "crashed.db"
+    await build_old_db(path)
+    raw = await aiosqlite.connect(str(path))
+    try:
+        await raw.execute("CREATE TABLE memories_minimal (id TEXT PRIMARY KEY)")
+        await raw.commit()
+    finally:
+        await raw.close()
+
+    async with SqliteDatabase.session(str(path), deterministic_embed) as db:
+        assert await db.get("keep1") is not None
+        assert await db.get("old1") is None
+
+
+async def test_migration_old_db_without_memory_links(tmp_path: Path) -> None:
+    """Hand-built old-shape DBs may lack memory_links; migration must not crash."""
+    path = tmp_path / "nolinks.db"
+    raw = await aiosqlite.connect(str(path))
+    try:
+        await raw.enable_load_extension(True)
+        await raw.load_extension(sqlite_vec.loadable_path())
+        await raw.enable_load_extension(False)
+        await raw.executescript(
+            """
+            CREATE TABLE memories (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                memory_type TEXT NOT NULL DEFAULT 'fact',
+                project TEXT,
+                tags TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """
+        )
+        await raw.execute(OLD_VEC_TABLE)
+        await raw.execute(
+            "INSERT INTO memories (id, content, created_at, updated_at) "
+            "VALUES ('lonely1', 'No links table here', ?, ?)",
+            (TS, TS),
+        )
+        await raw.execute(
+            "INSERT INTO memory_vec (id, embedding) VALUES ('lonely1', ?)",
+            (deterministic_embed("No links table here"),),
+        )
+        await raw.commit()
+    finally:
+        await raw.close()
+
+    async with SqliteDatabase.session(str(path), deterministic_embed) as db:
+        mem = await db.get("lonely1")
+        assert mem is not None
+        assert mem.content == "No links table here"
+
+
 async def test_fresh_db_untouched_by_migration(db: SqliteDatabase) -> None:
     """A fresh minimal DB round-trips through init without a rebuild."""
     mid = await db.store("Fresh row", project="p")
