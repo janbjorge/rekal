@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Required, TypedDict
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,27 +11,18 @@ MemoryTier = Literal["durable", "scratch"]
 ConversationRelation = Literal["follows_up_on", "branches_from", "contradicts", "merges"]
 MemoryRelation = Literal["supersedes", "contradicts", "related_to"]
 
-# Token-lean projections returned by the MCP tools: bookkeeping fields
-# (tier, timestamps beyond created_at, access counters) are dropped and
-# absent values are omitted instead of serialized as null.
 
+class CompactMemory(BaseModel):
+    """Token-lean projection returned by the MCP tools: bookkeeping fields
+    (tier, timestamps beyond created_at, access counters) are dropped."""
 
-class CompactMemory(TypedDict, total=False):
-    id: Required[str]
-    content: Required[str]
-    memory_type: Required[MemoryType]
-    project: str
-    tags: list[str]
-    created_at: str
-    score: float
-
-
-class CompactContext(TypedDict, total=False):
-    query: Required[str]
-    memories: Required[list[CompactMemory]]
-    timeline_summary: Required[str]
-    scratch: list[CompactMemory]
-    conflicts: list[dict[str, str]]
+    id: str
+    content: str
+    memory_type: MemoryType
+    project: str | None = None
+    tags: list[str] | None = None
+    created_at: str | None = None
+    score: float | None = None
 
 
 class MemoryResult(BaseModel):
@@ -50,20 +41,15 @@ class MemoryResult(BaseModel):
     score: float | None = None
 
     def compact(self) -> CompactMemory:
-        out: CompactMemory = {
-            "id": self.id,
-            "content": self.content,
-            "memory_type": self.memory_type,
-        }
-        if self.project:
-            out["project"] = self.project
-        if self.tags:
-            out["tags"] = self.tags
-        if self.created_at:
-            out["created_at"] = self.created_at
-        if self.score is not None:
-            out["score"] = round(self.score, 3)
-        return out
+        return CompactMemory(
+            id=self.id,
+            content=self.content,
+            memory_type=self.memory_type,
+            project=self.project,
+            tags=self.tags or None,
+            created_at=self.created_at or None,
+            score=round(self.score, 3) if self.score is not None else None,
+        )
 
 
 class TopicSummary(BaseModel):
@@ -107,6 +93,16 @@ class ConversationLink(BaseModel):
     created_at: str
 
 
+class CompactContext(BaseModel):
+    """Token-lean recall payload; empty tiers/conflicts collapse to None."""
+
+    query: str
+    memories: list[CompactMemory]
+    timeline_summary: str
+    scratch: list[CompactMemory] | None = None
+    conflicts: list[ConflictInfo] | None = None
+
+
 class ContextResult(BaseModel):
     query: str
     memories: list[MemoryResult]
@@ -115,16 +111,13 @@ class ContextResult(BaseModel):
     timeline_summary: str
 
     def compact(self) -> CompactContext:
-        out: CompactContext = {
-            "query": self.query,
-            "memories": [m.compact() for m in self.memories],
-            "timeline_summary": self.timeline_summary,
-        }
-        if self.scratch:
-            out["scratch"] = [m.compact() for m in self.scratch]
-        if self.conflicts:
-            out["conflicts"] = [c.model_dump() for c in self.conflicts]
-        return out
+        return CompactContext(
+            query=self.query,
+            memories=[m.compact() for m in self.memories],
+            timeline_summary=self.timeline_summary,
+            scratch=[m.compact() for m in self.scratch] or None,
+            conflicts=self.conflicts or None,
+        )
 
 
 class StaleConversation(BaseModel):
