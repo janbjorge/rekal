@@ -101,6 +101,9 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
     if "memory_type" not in cols:
         return  # fresh DB or already minimal
 
+    # A crash mid-migration can leave an empty memories_minimal behind
+    # while the data rolls back; clear it so the retry starts clean.
+    await db.execute("DROP TABLE IF EXISTS memories_minimal")
     await db.execute(
         """
         CREATE TABLE memories_minimal (

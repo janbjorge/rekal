@@ -268,6 +268,22 @@ async def test_migration_pre_tier_db(tmp_path: Path) -> None:
         assert mem.content == "Pre-tier row"
 
 
+async def test_migration_retries_after_interrupted_run(tmp_path: Path) -> None:
+    """A leftover memories_minimal from a crashed migration must not block the retry."""
+    path = tmp_path / "crashed.db"
+    await build_old_db(path)
+    raw = await aiosqlite.connect(str(path))
+    try:
+        await raw.execute("CREATE TABLE memories_minimal (id TEXT PRIMARY KEY)")
+        await raw.commit()
+    finally:
+        await raw.close()
+
+    async with SqliteDatabase.session(str(path), deterministic_embed) as db:
+        assert await db.get("keep1") is not None
+        assert await db.get("old1") is None
+
+
 async def test_migration_old_db_without_memory_links(tmp_path: Path) -> None:
     """Hand-built old-shape DBs may lack memory_links; migration must not crash."""
     path = tmp_path / "nolinks.db"
