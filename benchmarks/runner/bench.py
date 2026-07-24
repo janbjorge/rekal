@@ -80,28 +80,33 @@ Key = tuple[str, str, str]  # (pair, role, arm)
 
 # Read-only tool allowlist so exploration never hits a permission prompt.
 COLD_TOOLS = "Read,Grep,Glob,Bash(rg:*),Bash(fd:*),Bash(cat:*),Bash(head:*),Bash(wc:*)"
-# Measured warm runs may only RECALL, never write. A memory_store call during a
-# measured run is pure overhead absent from the cold arm — it burns a turn (and,
-# against a frozen seed DB, fails), inflating warm token counts and confounding
-# the comparison. The rekal MCP server's own system prompt nudges the agent to
-# "store as you work", so store must be gated out at the allowlist, not merely
-# left unrequested. Only the `learn` pass (which builds the seed DB) gets write.
-RECALL_TOOLS = "mcp__rekal__memory_build_context,mcp__rekal__memory_search"
+# Measured warm runs may only RECALL, never write. Enforcement is server-side:
+# REKAL_READONLY=1 makes the rekal server register memory_build_context ONLY
+# and swap in store-free instructions, so the model never sees a write tool it
+# could waste a turn attempting. (An --allowedTools entry only pre-approves; it
+# does not hide the tool schema, so allowlist-level gating measurably failed:
+# warm runs averaged ~1 denied memory_store attempt each.) The allowlist here
+# just pre-approves what the readonly server exposes.
+RECALL_TOOLS = "mcp__rekal__memory_build_context"
 WARM_TOOLS = COLD_TOOLS + "," + RECALL_TOOLS
-LEARN_TOOLS = WARM_TOOLS + ",mcp__rekal__memory_store"
+LEARN_TOOLS = WARM_TOOLS + ",mcp__rekal__memory_store,mcp__rekal__memory_delete"
 # Flags every headless invocation shares, regardless of arm.
 HEADLESS = ["--no-session-persistence", "--permission-mode", "dontAsk"]
 
-# Appended to the question for warm arms only. Without it the warm agent
+# Appended to the question for warm arms only. Relevant memories are already
+# injected by the UserPromptSubmit hook, so the guidance points at the injected
+# block first — an extra memory_build_context call costs a full turn and should
+# only happen when the injection missed. Without any guidance the warm agent
 # treats recalled memory as a supplement and re-reads the code anyway (fastapi
 # warm-seed did 54 Reads vs cold's 57 — recall added turns without removing
-# exploration). This tells it to trust memory and read only to fill gaps, which
-# is how rekal is meant to be used. Given to BOTH warm arms (empty + seed) so
-# the overhead decomposition still isolates memory content, not the instruction.
+# exploration). Given to BOTH warm arms (empty + seed) so the overhead
+# decomposition still isolates memory content, not the instruction.
 WARM_GUIDANCE = (
-    "\n\nBefore exploring, recall what prior sessions already learned about this "
-    "subsystem from your memory (rekal) and rely on it. Read the code only to "
-    "fill genuine gaps — do not re-derive or re-verify what memory already states."
+    "\n\nRelevant memories from prior sessions, if any, are already injected "
+    "above under '## rekal memory' — trust them and build on them. Call "
+    "memory_build_context only if the injected block is missing or clearly "
+    "insufficient for this question. Read the code only to fill genuine gaps — "
+    "do not re-derive or re-verify what memory already states."
 )
 
 
@@ -179,19 +184,25 @@ def base_settings() -> dict:
 
 def hook_settings() -> dict:
     """Recall-hook settings, layered on top of base via --settings for warm
-    arms. Wires SessionStart/UserPromptSubmit to `rekal hook`, which reads
+    arms. Wires UserPromptSubmit ONLY to `rekal hook`, which reads
     REKAL_DB_PATH from the env the run sets — so one file works for every repo
-    without baking a DB path in. This is what reproduces the rekal plugin's
-    injection standalone."""
+    without baking a DB path in.
+
+    SessionStart recall is deliberately absent: it injects the N most
+    *recent* memories with no query, which in a multi-subsystem seed DB is
+    mostly the wrong subsystem — measured cost, no measured benefit. The
+    UserPromptSubmit hook injects query-matched memories, which is the one
+    recall channel that costs zero extra turns."""
     rekal = rekal_bin()
-
-    def recall(event: str) -> dict:
-        return {"hooks": [{"type": "command", "command": f"{rekal} hook {event}"}]}
-
     return {
         "hooks": {
-            "SessionStart": [recall("session-start")],
-            "UserPromptSubmit": [recall("user-prompt-submit")],
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {"type": "command", "command": f"{rekal} hook user-prompt-submit"}
+                    ]
+                }
+            ],
         },
     }
 
@@ -262,11 +273,12 @@ def build_cmd(
     Every arm shares one authenticated config dir (CLAUDE_CONFIG_DIR=WARM_CFG)
     and the same hookless base settings.json, so the ONLY difference is rekal.
     cold adds nothing (--strict-mcp-config with no --mcp-config = zero MCP, no
-    hooks); the warm arms layer on the recall hooks (--settings hooks.json) and
+    hooks); the warm arms layer on the recall hook (--settings hooks.json) and
     the rekal MCP server, differing from each other only in which DB
     REKAL_DB_PATH points at (empty vs this repo's frozen seed). Measured warm
-    runs get a recall-only allowlist; `learn` passes store=True to also expose
-    memory_store, since building the seed DB is the one pass that must write.
+    runs set REKAL_READONLY=1 so the server exposes recall only (no store tool
+    schema, no store instructions); `learn` passes store=True to run the full
+    server, since building the seed DB is the one pass that must write.
 
     `--bare` is deliberately NOT used: it disables subscription auth, so a
     headless run under it always comes back "Not logged in". Isolation to a
@@ -296,7 +308,10 @@ def build_cmd(
         "--allowedTools",
         LEARN_TOOLS if store else WARM_TOOLS,
     ]
-    return argv, env | {"REKAL_DB_PATH": str(db)}
+    warm_env = env | {"REKAL_DB_PATH": str(db)}
+    if not store:
+        warm_env |= {"REKAL_READONLY": "1"}
+    return argv, warm_env
 
 
 def _tool_detail(block: dict) -> str:
@@ -424,7 +439,7 @@ def one_run(repo: str, arm: str, q: dict, role: str, run: int, pos: str) -> RunR
     print(f"\n{pos} {q['pair']}/{role} | {arm} #{run}", flush=True)
     run_claude(argv, REPOS / repo, env, rr)
     print(
-        f"      = {_tokens(rr.total_tokens)} tok | {rr.num_turns} turns | "
+        f"      = {_tokens(rr.total_tokens)} tok | ${rr.cost_usd:.2f} | {rr.num_turns} turns | "
         f"{tool_summary(rr.tool_calls)}"
     )
     return rr
@@ -432,26 +447,35 @@ def one_run(repo: str, arm: str, q: dict, role: str, run: int, pos: str) -> RunR
 
 def rollup(pair: str, role: str, by_arm: dict[str, list[RunResult]]) -> None:
     """After a (pair, role) group's arms all run, print the running verdict:
-    median tokens per arm, each warm arm's delta vs cold, and whether rekal
-    saved or cost tokens on this question — the insight the raw log buries."""
+    median tokens + dollars per arm, each warm arm's delta vs cold, and whether
+    rekal saved or cost — the insight the raw log buries. Cost is the honest
+    axis: cache reads are ~10% of input price, so token totals overstate."""
 
     def median_tok(arm: str) -> float | None:
         rrs = by_arm.get(arm)
         return statistics.median([r.total_tokens for r in rrs]) if rrs else None
 
+    def median_cost(arm: str) -> float | None:
+        rrs = by_arm.get(arm)
+        return statistics.median([r.cost_usd for r in rrs]) if rrs else None
+
     cold = median_tok(Arm.COLD)
+    cold_cost = median_cost(Arm.COLD)
     print(f"  +- {pair}/{role} -- median over runs --")
     for arm in Arm:  # fixed cold -> warm-empty -> warm-seed order
         m = median_tok(arm)
-        if m is None:
+        c = median_cost(arm)
+        if m is None or c is None:
             continue
         delta = f"  {(m - cold) / cold * 100:+.0f}% vs cold" if cold and arm != Arm.COLD else ""
-        print(f"  |  {arm:<11} {_tokens(m):>7} tok{delta}")
+        print(f"  |  {arm:<11} {_tokens(m):>7} tok  ${c:.2f}{delta}")
     ws = median_tok(Arm.WARM_SEED)
-    if cold and ws:
+    ws_cost = median_cost(Arm.WARM_SEED)
+    if cold and ws and cold_cost and ws_cost is not None:
         pct = (cold - ws) / cold * 100
-        verdict = "rekal SAVED" if pct > 0 else "rekal COST MORE"
-        print(f"  +- net {pct:+.0f}%  -> {verdict}")
+        cost_pct = (cold_cost - ws_cost) / cold_cost * 100
+        verdict = "rekal SAVED" if cost_pct > 0 else "rekal COST MORE"
+        print(f"  +- net {pct:+.0f}% tok, {cost_pct:+.0f}% cost  -> {verdict}")
     else:
         print("  +-")
 
@@ -648,13 +672,16 @@ def aggregate(repo: str) -> None:
             "WARNING: no judged file — quality unverified, warm 'wins' may be "
             "cheaper AND worse. Run `judge` first."
         )
-    # group by (pair, role, arm) -> total tokens per run
+    # group by (pair, role, arm) -> total tokens / cost per run. Cost is the
+    # honest axis (cache reads are ~10% of input price); tokens shown alongside.
     groups: dict[Key, list[int]] = {}
+    costs: dict[Key, list[float]] = {}
     scores: dict[Key, list[int]] = {}
     for r in rows:
         key: Key = (r["pair"], r["role"], r["arm"])
         tot = r["input_tokens"] + r["output_tokens"] + r["cache_read"] + r["cache_creation"]
         groups.setdefault(key, []).append(tot)
+        costs.setdefault(key, []).append(r.get("cost_usd", 0.0))
         if "score" in r:
             scores.setdefault(key, []).append(r["score"])
 
@@ -662,21 +689,37 @@ def aggregate(repo: str) -> None:
         xs = groups.get((pair, role, arm))
         return statistics.median(xs) if xs else None
 
+    def med_cost(pair: str, role: str, arm: str) -> float | None:
+        xs = costs.get((pair, role, arm))
+        return statistics.median(xs) if xs else None
+
     pairs = sorted({r["pair"] for r in rows})
-    print(f"\n=== {repo}: median total tokens ===")
-    print(f"{'pair':<18}{'role':<9}{'cold':>10}{'warm-empty':>12}{'warm-seed':>11}{'net%':>8}")
+    print(f"\n=== {repo}: median total tokens + cost ===")
+    print(
+        f"{'pair':<18}{'role':<9}{'cold':>10}{'warm-empty':>12}{'warm-seed':>11}{'net%':>8}"
+        f"{'$cold':>8}{'$ws':>7}{'$net%':>8}"
+    )
     for pair in pairs:
         for role in Role:
             c = med(pair, role, Arm.COLD)
             we = med(pair, role, Arm.WARM_EMPTY)
             ws = med(pair, role, Arm.WARM_SEED)
-            if c is None or ws is None:
+            cc = med_cost(pair, role, Arm.COLD)
+            wsc = med_cost(pair, role, Arm.WARM_SEED)
+            if c is None or ws is None or cc is None or wsc is None:
                 continue
             we_s = "-" if we is None else f"{we:.0f}"
-            print(f"{pair:<18}{role:<9}{c:>10.0f}{we_s:>12}{ws:>11.0f}{100 * (c - ws) / c:>7.1f}%")
+            cost_net = f"{100 * (cc - wsc) / cc:.1f}%" if cc else "-"
+            print(
+                f"{pair:<18}{role:<9}{c:>10.0f}{we_s:>12}{ws:>11.0f}"
+                f"{100 * (c - ws) / c:>7.1f}%{cc:>8.2f}{wsc:>7.2f}{cost_net:>8}"
+            )
 
     def pool(arm: str, role: str) -> list[int]:
         return [g for (_p, rl, a), xs in groups.items() if a == arm and rl == role for g in xs]
+
+    def pool_cost(arm: str, role: str) -> list[float]:
+        return [g for (_p, rl, a), xs in costs.items() if a == arm and rl == role for g in xs]
 
     def qual(arm: str, role: str) -> float | None:
         xs = [s for (_p, rl, a), ss in scores.items() if a == arm and rl == role for s in ss]
@@ -690,11 +733,21 @@ def aggregate(repo: str) -> None:
         )
         if not c:
             continue
+        cc, wec, wsc = (
+            statistics.median(pool_cost(Arm.COLD, role) or [0.0]),
+            statistics.median(pool_cost(Arm.WARM_EMPTY, role) or [0.0]),
+            statistics.median(pool_cost(Arm.WARM_SEED, role) or [0.0]),
+        )
         print(
             f"\n[{role}] cold={c:.0f} warm-empty={we:.0f} warm-seed={ws:.0f} "
             f"| overhead={we - c:.0f} benefit={we - ws:.0f} net={c - ws:.0f} "
             f"({100 * (c - ws) / c:.1f}% saved)"
         )
+        if cc:
+            print(
+                f"       cost: cold=${cc:.2f} warm-empty=${wec:.2f} warm-seed=${wsc:.2f} "
+                f"| net=${cc - wsc:+.2f} ({100 * (cc - wsc) / cc:.1f}% saved)"
+            )
         qc, qw = qual(Arm.COLD, role), qual(Arm.WARM_SEED, role)
         if qc is not None and qw is not None:
             flag = "  <-- WARM WORSE, savings suspect" if qw < qc - 0.1 else ""

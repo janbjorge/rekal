@@ -55,8 +55,9 @@ decomposes into cost vs benefit (tokens):
 All three share ONE authenticated config dir and the same hookless
 `settings.json`, so the *only* difference between arms is rekal itself.
 `cold` adds nothing (`--strict-mcp-config`, no MCP, no hooks); the warm
-arms layer on the rekal MCP server + recall hooks. `--bare` is not used
-because it disables auth. Details in DESIGN.md.
+arms layer on the rekal MCP server (readonly: `REKAL_READONLY=1`, so no
+store tool exists to waste turns on) + the UserPromptSubmit recall hook.
+`--bare` is not used because it disables auth. Details in DESIGN.md.
 
 ## Questions
 
@@ -115,13 +116,15 @@ empty.
 
 ## Reading `aggregate`
 
-- Per-pair table: median total tokens for cold / warm-empty / warm-seed
-  and `net%` = `(cold - warm-seed) / cold`.
-- Per-role summary: the overhead/benefit/net decomposition, plus a
-  **quality** line (`cold=... warm-seed=...`). If warm scored materially worse
-  it's flagged `WARM WORSE, savings suspect`, since a cheap wrong answer is
-  not a win. Run `judge` first or `aggregate` warns that quality is
-  unverified.
+- Per-pair table: median total tokens for cold / warm-empty / warm-seed,
+  `net%` = `(cold - warm-seed) / cold`, plus median cost columns
+  (`$cold` / `$ws` / `$net%`). Cost is the honest axis: cache reads are
+  ~10% of input price, so token totals overstate the warm arms.
+- Per-role summary: the overhead/benefit/net decomposition in tokens, a
+  **cost** line in USD, plus a **quality** line (`cold=... warm-seed=...`).
+  If warm scored materially worse it's flagged `WARM WORSE, savings
+  suspect`, since a cheap wrong answer is not a win. Run `judge` first or
+  `aggregate` warns that quality is unverified.
 
 ## Notes
 
@@ -129,7 +132,7 @@ empty.
   gitignored; only the runner, questions, and docs are committed.
 - Runs are long: each question is a full agent exploration (minutes).
   `run` streams a live tool pulse (`- read routing.py`, memory calls
-  flagged `*`), a compact per-run line (`= 191k tok | 11 turns | N
+  flagged `*`), a compact per-run line (`= 191k tok | $0.35 | 11 turns | N
   tools`), and (the useful part) a **per-pair verdict** the moment a
   pair's arms finish: median tokens per arm, warm deltas vs cold, and a
   `rekal SAVED` / `rekal COST MORE` net line. Results flush per run, so an

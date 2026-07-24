@@ -42,12 +42,12 @@ This yields two measurements from one design:
 
 Three configs decompose net effect into overhead vs content benefit.
 
-| arm        | rekal              | DB            | purpose                                |
-|------------|--------------------|---------------|----------------------------------------|
-| cold       | none               | none          | true baseline: agent with NO rekal     |
-| warm-empty | MCP + recall hooks | empty         | isolates FIXED overhead (tool schemas + hook payload) |
-| warm-seed  | MCP + recall hooks | frozen seed   | recall benefit                         |
-| learn      | MCP, store on      | empty->seed    | build the frozen seed DB once (not measured) |
+| arm        | rekal                        | DB            | purpose                                |
+|------------|------------------------------|---------------|----------------------------------------|
+| cold       | none                         | none          | true baseline: agent with NO rekal     |
+| warm-empty | readonly MCP + recall hook   | empty         | isolates FIXED overhead (tool schema + hook payload) |
+| warm-seed  | readonly MCP + recall hook   | frozen seed   | recall benefit                         |
+| learn      | full MCP, store on           | empty->seed   | build the frozen seed DB once (not measured) |
 
 Decomposition (tokens):
 
@@ -67,22 +67,29 @@ Notes:
   always returns "Not logged in"), so isolation via a dedicated config
   dir is what gives the clean baseline instead.
 - warm arms layer on rekal: `--mcp-config` (`rekal mcp`) + `--settings
-  config/warm/hooks.json` wiring SessionStart/UserPromptSubmit ->
-  `rekal hook <event>` (reads `REKAL_DB_PATH` from the run's env).
-- Store is OFF in measured runs, enforced at the allowlist: measured warm
-  arms only get `memory_build_context` + `memory_search`, never
-  `memory_store`. The rekal MCP system prompt nudges the agent to store as
-  it works, so leaving store merely unrequested isn't enough: a stray
-  write would burn a turn (and fail against the frozen seed) and inflate
-  the warm arm. Only `learn` exposes `memory_store`, to build the seed DB.
-- Both warm arms' prompts get a recall nudge ("recall first, read only to
-  fill gaps"). Without it the warm agent recalls memory but re-reads the
-  code anyway, so recall adds turns instead of replacing exploration.
-  Recall-first is how rekal is meant to be used, not a thumb on the
-  scale. Given
-  to warm-empty AND warm-seed so overhead=warm-empty-cold absorbs the
-  instruction and benefit=warm-empty-warm-seed still isolates memory
-  content. cold has no memory, so its prompt stays the bare question.
+  config/warm/hooks.json` wiring UserPromptSubmit -> `rekal hook
+  user-prompt-submit` (reads `REKAL_DB_PATH` from the run's env). That is
+  the single recall channel: the hook injects query-matched memories at
+  zero turn cost. There is deliberately NO SessionStart recall hook: it
+  injects the most recent memories with no query, which in a
+  multi-subsystem seed DB is mostly the wrong subsystem (measured cost,
+  no benefit).
+- Store is OFF in measured runs, enforced server-side: `REKAL_READONLY=1`
+  makes rekal register `memory_build_context` only and swap in store-free
+  instructions. Allowlist gating alone measurably failed: `--allowedTools`
+  only pre-approves and does not hide schemas, so the server's own "store
+  as you work" instructions drove ~1 denied `memory_store` attempt per
+  warm run, each burning a turn. Only `learn` runs the full server, to
+  build the seed DB.
+- Both warm arms' prompts get a recall nudge: trust the hook-injected
+  memory block, call `memory_build_context` only if it is insufficient,
+  read code only to fill gaps. Without it the warm agent recalls memory
+  but re-reads the code anyway, so recall adds turns instead of replacing
+  exploration. Recall-first is how rekal is meant to be used, not a thumb
+  on the scale. Given to warm-empty AND warm-seed so
+  overhead=warm-empty-cold absorbs the instruction and
+  benefit=warm-empty-warm-seed still isolates memory content. cold has no
+  memory, so its prompt stays the bare question.
 - Seed DB built once by a curated learn pass, then FROZEN (chmod 0o444)
   per run so stray writes can't mutate it.
 - Auth: headless `claude -p` needs a logged-in config dir. Authenticate
@@ -93,6 +100,9 @@ Notes:
 ## Metrics (per question, N=3, report median + MAD)
 
 - input / output / cache-read / cache-creation / total tokens
+- cost in USD (the honest axis: cache reads are ~10% of input price, so
+  raw token totals overstate the warm arms, whose extra turns are mostly
+  cache re-reads)
 - tool calls, esp. grep/read/glob count
 - turns to answer
 - wall-clock (secondary)
