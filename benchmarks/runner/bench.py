@@ -103,7 +103,18 @@ LEARN_TOOLS = (
     COLD_TOOLS + "," + RECALL_TOOLS + ",mcp__rekal__memory_store,mcp__rekal__memory_delete"
 )
 # Flags every headless invocation shares, regardless of arm.
-HEADLESS = ["--no-session-persistence", "--permission-mode", "dontAsk"]
+# --disallowedTools is load-bearing: --allowedTools only PRE-APPROVES, and
+# `dontAsk` auto-approves everything else — a cold pytorch run spawned an
+# Agent subagent (12 hidden tool calls, $0.95) through exactly that gap.
+# Subagents break arm comparability (their exploration hides from tool
+# counts) and web tools would let answers bypass the checkout entirely.
+HEADLESS = [
+    "--no-session-persistence",
+    "--permission-mode",
+    "dontAsk",
+    "--disallowedTools",
+    "Agent,Task,WebSearch,WebFetch",
+]
 
 # No warm-side prompt guidance: every arm gets the bare question. The trust
 # framing ("cite anchors, don't re-verify") ships INSIDE the injected memory
