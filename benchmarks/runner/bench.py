@@ -29,6 +29,7 @@ import statistics
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
@@ -114,13 +115,18 @@ WARM_GUIDANCE = (
 def rekal_bin() -> str:
     """Absolute path to the rekal CLI, baked into hook/MCP commands.
 
-    Resolved via PATH (once, cached) rather than assumed, because the warm
-    settings.json and --mcp-config embed the literal command and an isolated
-    CLAUDE_CONFIG_DIR won't inherit a shell alias.
+    Prefers this repo's .venv so the benchmark measures the checked-out code,
+    not a globally installed release. Falls back to PATH. Resolved once
+    (cached) because the warm settings.json and --mcp-config embed the
+    literal command and an isolated CLAUDE_CONFIG_DIR won't inherit a
+    shell alias.
     """
+    local = BENCH.parent / ".venv" / "bin" / "rekal"
+    if local.is_file():
+        return str(local)
     if path := which("rekal"):
         return path
-    sys.exit("rekal not on PATH; `uv tool install rekal` or activate the venv")
+    sys.exit("rekal not on PATH; `uv sync` in the repo or `uv tool install rekal`")
 
 
 def ensure_repo(repo: str) -> Path:
@@ -197,11 +203,7 @@ def hook_settings() -> dict:
     return {
         "hooks": {
             "UserPromptSubmit": [
-                {
-                    "hooks": [
-                        {"type": "command", "command": f"{rekal} hook user-prompt-submit"}
-                    ]
-                }
+                {"hooks": [{"type": "command", "command": f"{rekal} hook user-prompt-submit"}]}
             ],
         },
     }
@@ -296,7 +298,12 @@ def build_cmd(
         *HEADLESS,
         "--strict-mcp-config",
     ]
-    env = environ | {"CLAUDE_CONFIG_DIR": str(WARM_CFG)}
+    # ENABLE_TOOL_SEARCH=false loads MCP tool schemas eagerly. The default
+    # (deferred) makes the warm agent burn turns on ToolSearch and sometimes
+    # search wrong names, find nothing, and answer without recall at all --
+    # which would corrupt the arm comparison. Set for every arm so env is
+    # uniform (cold has no MCP tools; it's a no-op there).
+    env = environ | {"CLAUDE_CONFIG_DIR": str(WARM_CFG), "ENABLE_TOOL_SEARCH": "false"}
     if arm == Arm.COLD:
         return [*argv, "--allowedTools", COLD_TOOLS], env
     db = DBS / "empty.db" if arm == Arm.WARM_EMPTY else seed_db(repo)
@@ -368,17 +375,47 @@ def _pulse(name: str, detail: str, root: Path) -> str:
     return f"    {mark} {label} {detail}".rstrip()[:88]
 
 
+# Attempts per headless run. One transient API error (rate limit, overloaded)
+# 30 runs into a 180-run matrix must not abort the whole thing.
+RETRIES = 3
+
+
 def run_claude(
     argv: list[str], cwd: Path, env: dict[str, str], rr: RunResult, *, live: bool = True
 ) -> None:
-    """Run headless claude in one streaming pass: fold events into `rr`, echo
-    each tool call live so long runs show a pulse instead of silence.
+    """Run headless claude, retrying transient failures, folding events into `rr`.
 
     A successful headless run always emits a terminal `result` event; its
-    absence (or a zero-token error) means the run failed — auth, crash — so we
-    hard-exit rather than record a poisoned zero-token run. This structural
-    check replaces sniffing stderr for a "Not logged in" string.
+    absence (or a zero-token error) means the run failed — auth, crash, usage
+    limit. Such runs are retried with backoff; only RETRIES consecutive
+    failures abort the matrix, so one flaky API call can't kill a long run.
     """
+    fail = ""
+    for attempt in range(1, RETRIES + 1):
+        if (fail := run_claude_once(argv, cwd, env, rr, live=live)) is None:
+            return
+        if attempt < RETRIES:
+            wait = 30 * attempt
+            print(f"      ! claude run failed ({fail}); retrying in {wait}s", flush=True)
+            time.sleep(wait)
+    sys.exit(f"claude run failed {RETRIES}x -- {fail}")
+
+
+def run_claude_once(
+    argv: list[str], cwd: Path, env: dict[str, str], rr: RunResult, *, live: bool = True
+) -> str | None:
+    """One streaming claude pass: fold events into `rr`, echo each tool call
+    live so long runs show a pulse instead of silence.
+
+    Returns None on success, else a short failure description. claude prints
+    errors like "usage limit reached" as PLAIN TEXT on stdout (not stderr, not
+    a result event), so non-JSON stdout lines are kept as the primary failure
+    detail rather than silently skipped.
+    """
+    # Reset accumulated state so a retry doesn't double-count the failed attempt.
+    rr.input_tokens = rr.output_tokens = rr.cache_read = rr.cache_creation = 0
+    rr.num_turns, rr.cost_usd, rr.answer, rr.is_error = 0, 0.0, "", False
+    rr.tool_calls = {}
     proc = subprocess.Popen(
         argv,
         cwd=cwd,
@@ -395,10 +432,13 @@ def run_claude(
     drain = threading.Thread(target=lambda: err_chunks.append(stderr.read()))
     drain.start()
     saw_result = False
+    junk: list[str] = []
     for line in proc.stdout:
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
+            if line.strip():
+                junk.append(line.strip())
             continue
         if not isinstance(ev, dict):
             continue
@@ -424,9 +464,10 @@ def run_claude(
     code = proc.wait()
     drain.join()
     if not saw_result or (rr.is_error and rr.total_tokens == 0):
-        err = "".join(err_chunks)
-        tail = (err.strip().splitlines() or ["(no stderr)"])[-1]
-        sys.exit(f"claude run failed (exit {code}); is it logged in? -- {tail[:200]}")
+        err = "".join(err_chunks).strip()
+        detail = junk[-1] if junk else (err.splitlines()[-1] if err else "(no output)")
+        return f"exit {code}: {detail[:200]}"
+    return None
 
 
 def one_run(repo: str, arm: str, q: dict, role: str, run: int, pos: str) -> RunResult:
@@ -496,6 +537,9 @@ def run(
     n: int = typer.Option(3, help="runs per (question, arm)"),
     arms: str = typer.Option(",".join(Arm), help="comma list of arms"),
     roles: str = typer.Option(",".join(Role), help="comma list: seed,heldout"),
+    resume: bool = typer.Option(
+        False, help="skip (pair, role, arm, run) rows already in results/REPO.jsonl"
+    ),
 ) -> None:
     """Run all questions across arms, N times each; append to results/REPO.jsonl."""
     ensure_repo(repo)
@@ -512,6 +556,15 @@ def run(
         f"{len(arm_list)} arms x {n} runs = {total} runs"
     )
     out = RESULTS / f"{repo}.jsonl"
+    # --resume trusts rows already flushed to the results file: failures are
+    # never written (run_claude exits first), so every recorded row is a
+    # completed run. Replayed into by_arm so rollup verdicts stay complete.
+    prior: dict[tuple[str, str, str, int], RunResult] = {}
+    if resume and out.exists():
+        for line in out.read_text().splitlines():
+            r = json.loads(line)
+            prior[(r["pair"], r["role"], r["arm"], r["run"])] = RunResult(**r)
+        print(f"resume: {len(prior)} recorded runs will be skipped")
     done = 0
     with out.open("a") as f:
         # Group by (pair, role) so each group's arms can be compared the moment
@@ -521,6 +574,9 @@ def run(
                 by_arm: dict[str, list[RunResult]] = {}
                 for arm, i in product(arm_list, range(n)):
                     done += 1
+                    if rr := prior.get((q["pair"], role, arm, i)):
+                        by_arm.setdefault(arm, []).append(rr)
+                        continue
                     rr = one_run(repo, arm, q, role, i, f"[{done}/{total}]")
                     f.write(json.dumps(rr.__dict__) + "\n")
                     f.flush()
