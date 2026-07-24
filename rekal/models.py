@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Required, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -14,8 +14,24 @@ MemoryRelation = Literal["supersedes", "contradicts", "related_to"]
 # Token-lean projections returned by the MCP tools: bookkeeping fields
 # (tier, timestamps beyond created_at, access counters) are dropped and
 # absent values are omitted instead of serialized as null.
-CompactMemory = dict[str, str | float | list[str]]
-CompactContext = dict[str, str | list[CompactMemory] | list[dict[str, str]]]
+
+
+class CompactMemory(TypedDict, total=False):
+    id: Required[str]
+    content: Required[str]
+    memory_type: Required[MemoryType]
+    project: str
+    tags: list[str]
+    created_at: str
+    score: float
+
+
+class CompactContext(TypedDict, total=False):
+    query: Required[str]
+    memories: Required[list[CompactMemory]]
+    timeline_summary: Required[str]
+    scratch: list[CompactMemory]
+    conflicts: list[dict[str, str]]
 
 
 class MemoryResult(BaseModel):

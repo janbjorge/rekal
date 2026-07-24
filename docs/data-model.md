@@ -120,9 +120,9 @@ CREATE TABLE IF NOT EXISTS memories (
 
 The table-level `CHECK (tier = 'durable' OR expires_at IS NOT NULL)`
 forbids a scratch row without a TTL. It applies only to DBs created after
-the constraint landed. SQLite has no `ALTER TABLE … ADD CHECK`, so DBs
-migrated from before it landed rely on the Python guard in
-`memory_store_scratch` instead.
+the constraint landed; SQLite has no `ALTER TABLE … ADD CHECK`, so older
+migrated DBs rely on callers of `db.store` passing `expires_at` with
+`tier="scratch"`.
 
 **Columns**
 
@@ -162,7 +162,7 @@ indexes from earlier scratch-tier work: `idx_memories_tier_expires` (its
 | Tier | Default | TTL | Visible to |
 |---|---|---|---|
 | `durable` | yes | none | search, timeline, topics, build_context.memories |
-| `scratch` | only via `memory_store_scratch` | required (`expires_at`) | same, but expired rows hidden by lazy filter and hard-deleted by `sweep_expired` |
+| `scratch` | only via `db.store(tier="scratch")` (no MCP tool) | required (`expires_at`) | same, but expired rows hidden by lazy filter and hard-deleted by `sweep_expired` |
 
 The two axes, `memory_type` (semantic) and `tier` (lifecycle), are
 intentionally orthogonal. A `scratch` row can be any `memory_type`. A
@@ -288,8 +288,9 @@ CREATE TABLE IF NOT EXISTS project_config (
 
 Keyspace today: `w_fts`, `w_vec`, `w_recency`, `half_life`. Values are
 stored as TEXT and coerced to float by Pydantic in
-`SqliteDatabase.resolve_weights`. No DB-level enum on `key`;
-validation happens in `memory_set_config`.
+`SqliteDatabase.resolve_weights`. No DB-level enum on `key`. Nothing
+writes this table anymore (the `memory_set_config` tool was removed);
+it only affects DBs that configured it in the past.
 
 Precedence chain in `resolve_weights` (highest first):
 
@@ -518,7 +519,7 @@ containing `id`.
 |---|---|
 | `memory_type ∈ {fact, preference, procedure, context, episode}` | `MemoryType` Literal in `models.py`, validated by Pydantic at MCP boundary. |
 | `tier ∈ {durable, scratch}` | DB CHECK + `MemoryTier` Literal. Belt-and-braces. |
-| Scratch memories have non-NULL `expires_at` | **DB-enforced** on new DBs via `CHECK (tier = 'durable' OR expires_at IS NOT NULL)`. DBs migrated from before the constraint rely on the `memory_store_scratch` guard, since SQLite has no `ALTER TABLE … ADD CHECK`. |
+| Scratch memories have non-NULL `expires_at` | **DB-enforced** on new DBs via `CHECK (tier = 'durable' OR expires_at IS NOT NULL)`. DBs migrated from before the constraint rely on `db.store` callers passing `expires_at`, since SQLite has no `ALTER TABLE … ADD CHECK`. |
 | Tags are JSON-encoded `list[str]` | `db.store` / `db.update` JSON-encode; `parse_tags` decodes. Bad JSON falls back to `[]`. |
 | Vector dim matches `memory_vec` declaration | `FastEmbedder.dimensions` passed to `SqliteDatabase.create`. Mismatch → vec0 raises at insert. |
 | Timestamps are `'YYYY-MM-DD HH:MM:SS'` UTC strings | `now_utc()`. Compared lexicographically, which works because the format is fixed-width. |
@@ -536,7 +537,7 @@ containing `id`.
 - **Legacy DBs can hold scratch rows without `expires_at`**: new DBs
   block this via a table CHECK, but DBs migrated from before the
   constraint can't get it (`ALTER TABLE … ADD CHECK` is unsupported) and
-  rely on the `memory_store_scratch` guard.
+  rely on `db.store` callers passing `expires_at`.
 - **No `ON DELETE CASCADE`**: every cascading delete is hand-written.
 - **`memory_vec` has no trigger**: every memory mutation must
   remember to update the vec table. Bug-prone.

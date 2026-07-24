@@ -10,7 +10,7 @@ Works with any MCP-capable agent: [Claude Code](#setup-for-claude-code), [Codex 
 
 ```
 Session 1:   "I prefer Ruff over Black"  → memory_store(...)
-Session 47:  "Set up linting"            → memory_search("formatting preferences")
+Session 47:  "Set up linting"            → memory_build_context("formatting preferences")
                                           ← "User prefers Ruff over Black" (0.92)
                                           Sets up Ruff without asking.
 ```
@@ -19,7 +19,7 @@ Session 47:  "Set up linting"            → memory_search("formatting preferenc
 
 1. **Store.** The agent saves a durable fact with `memory_store`: a preference, a decision, a non-obvious discovery.
 2. **Index.** rekal writes it to SQLite and builds two indexes over it: a BM25 keyword index and a 384-dimensional vector embedding, both computed locally with no network calls.
-3. **Recall.** In a later session the agent calls `memory_search` (or `memory_build_context`). rekal blends keyword match, semantic similarity, and recency into a single score and returns the top hits.
+3. **Recall.** In a later session the agent calls `memory_build_context`. rekal blends keyword match, semantic similarity, and recency into a single score and returns the top hits above a relevance floor.
 
 All state is a single file: `~/.rekal/memory.db`. No daemon, no cloud, no API keys. For the scoring formula, schema, and embedding model, see [Under the hood](#under-the-hood).
 
@@ -212,59 +212,26 @@ rm -rf ~/.claude/plugins/cache
 
 ## Tools
 
-rekal exposes 21 MCP tools across four categories. The three you'll use most:
+rekal exposes exactly three MCP tools. A small surface keeps the tool schemas
+cheap in the agent's context and leaves no ambiguity about which tool to call:
 
 | Tool | Purpose |
 |------|---------|
-| `memory_store` | Store a durable memory with type, project, and tags |
-| `memory_search` | Hybrid search across memories; filter by `tier` (`durable`/`scratch`) |
-| `memory_build_context` | One call returning durable + scratch memories, conflicts, and timeline |
-
-<details>
-<summary><b>All 21 tools</b>: core, smart write, introspection, conversations</summary>
-
-**Core** (read and write memories):
-
-| Tool | Purpose |
-|------|---------|
-| `memory_store` | Store a durable memory with type, project, and tags |
-| `memory_store_scratch` | Store a transient note that auto-expires after `ttl_hours` (default 24h) |
-| `memory_search` | Hybrid search across memories; filter by `tier` (`durable`/`scratch`) |
-| `memory_update` | Edit content, tags, or type of an existing memory |
+| `memory_build_context` | Recall: hybrid search returning memories, conflicts, and a timeline summary. Results below the relevance floor (`min_score`, default 0.25) are dropped |
+| `memory_store` | Store a distilled durable memory with project and tags. Pass `replaces=<old_id>` to update an existing memory instead of creating a near-duplicate |
 | `memory_delete` | Remove a memory by ID |
-| `memory_prune` | Bulk-delete by scope (project / type / age); dry-run by default |
-| `memory_set_project` | Set the default project for the current session |
-| `memory_set_config` | Persist per-project scoring weights (`w_fts`, `w_vec`, `w_recency`, `half_life`) |
 
-**Smart write** (manage knowledge over time):
+Setting `REKAL_READONLY=1` in the server's environment registers only
+`memory_build_context`, for sessions that should recall but never write.
 
-| Tool | Purpose |
-|------|---------|
-| `memory_supersede` | Replace a memory while linking the old one as history |
-| `memory_link` | Connect memories: `supersedes`, `contradicts`, or `related_to` |
-| `memory_build_context` | One call returning durable + scratch memories (per-tier budgets), conflicts, and timeline |
+Admin operations live in the CLI, not the tool surface:
 
-**Introspection** (explore what's stored):
-
-| Tool | Purpose |
-|------|---------|
-| `memory_similar` | Find memories similar to a given one |
-| `memory_topics` | Topic summary grouped by type |
-| `memory_timeline` | Chronological view with optional date range |
-| `memory_related` | All links to and from a memory |
-| `memory_health` | Database stats: counts by type, project, date range |
-| `memory_conflicts` | Find memories that contradict each other |
-
-**Conversations** (track session threads):
-
-| Tool | Purpose |
-|------|---------|
-| `conversation_start` | Start a conversation, optionally linked to a previous one |
-| `conversation_tree` | Get the full conversation DAG |
-| `conversation_threads` | List recent conversations with memory counts |
-| `conversation_stale` | Find inactive conversations |
-
-</details>
+| Command | Purpose |
+|---------|---------|
+| `rekal health` | Database stats: counts by type, project, date range |
+| `rekal export` | Dump all memories as JSON |
+| `rekal prune` | Bulk-delete by scope (project / type / age); dry-run by default |
+| `rekal recall` | Print memories for a query (what the hooks inject) |
 
 ## Under the hood
 
@@ -276,7 +243,7 @@ Everything lives in `~/.rekal/memory.db`. Three subsystems share it:
 - **FTS5 virtual table**: full-text index over content+tags+project, auto-synced via triggers
 - **sqlite-vec virtual table**: 384-dimensional vector index for semantic search
 
-Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_supersede` writes the new memory and creates a `supersedes` link in a single operation, so old knowledge stays queryable with explicit lineage.
+Memory links (`supersedes`, `contradicts`, `related_to`) are stored in a separate table. `memory_store(replaces=<old_id>)` writes the new memory and creates a `supersedes` link in a single operation, so old knowledge stays queryable with explicit lineage.
 
 **Tiers.** Durable memories live forever; scratch memories carry an `expires_at` and are hard-deleted on server start once past their TTL. Search, timeline, and topics hide expired scratch entries automatically. Use scratch for in-flight hypotheses and working notes that should not pollute the durable store.
 
@@ -301,7 +268,7 @@ rekal uses [fastembed](https://github.com/qdrant/fastembed) with `BAAI/bge-small
 
 ### Search
 
-Every `memory_search` runs two parallel lookups, merges candidates, then scores:
+Every recall runs two parallel lookups, merges candidates, then scores:
 
 ```
 score = w_fts × sigmoid(-BM25)                       ← keyword relevance    (default 0.4)
@@ -312,18 +279,16 @@ score = w_fts × sigmoid(-BM25)                       ← keyword relevance    (
 **Why three signals?** Keywords miss synonyms ("deploy" vs "ship to prod"). Vectors miss exact identifiers. Recency alone buries important old knowledge. The blend covers all three failure modes.
 
 <details>
-<summary><b>Configurable weights</b>: four resolution layers + <code>.rekal/config.yml</code></summary>
+<summary><b>Configurable weights</b>: <code>.rekal/config.yml</code></summary>
 
-All weights and half-life are configurable at four levels:
+All weights and half-life are configurable:
 
 | Priority | Source | Set by | Persists? |
 |----------|--------|--------|-----------|
-| 1 (highest) | Per-search params | `memory_search(..., w_fts=0.8)` | No, single query only |
-| 2 | Database project config | `memory_set_config(key, value, project)` | Yes, in SQLite across sessions |
-| 3 | `.rekal/config.yml` | Checked into version control | Yes, shared with team |
-| 4 (lowest) | Hardcoded defaults | Built into rekal | Always: 0.4 / 0.4 / 0.2, 30-day half-life |
+| 1 (highest) | `.rekal/config.yml` | Checked into version control | Yes, shared with team |
+| 2 (lowest) | Hardcoded defaults | Built into rekal | Always: 0.4 / 0.4 / 0.2, 30-day half-life |
 
-Layers resolve per-key independently. A `.rekal/config.yml` setting `w_fts` and a DB override for `half_life` combine, and each key uses its highest-priority source.
+Layers resolve per-key independently: a config file setting only `w_fts` keeps the defaults for everything else.
 
 ```yaml
 # .rekal/config.yml

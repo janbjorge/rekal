@@ -64,9 +64,9 @@ async def open_db(db_path: str) -> AsyncIterator[SqliteDatabase]:
 
 
 async def run_serve() -> None:  # pragma: no cover — interactive stdio server
-    from rekal.adapters.mcp_adapter import mcp
+    from rekal.adapters.mcp_adapter import create_server
 
-    await mcp.run_stdio_async()
+    await create_server().run_stdio_async()
 
 
 async def run_health(db_path: str) -> None:

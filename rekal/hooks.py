@@ -26,22 +26,22 @@ SESSION_START_DIRECTIVE = (
     "MEMORY.md and no memory section of CLAUDE.md. Treat no file as a store of "
     "remembered facts, and a missing file as meaningless. This concerns memory "
     "only: instructions in CLAUDE.md / AGENTS.md still apply in full. Persist "
-    "durable facts as they emerge via memory_store / memory_supersede; recall "
-    "more with memory_search."
+    "durable facts as they emerge via memory_store (pass replaces=<old_id> to "
+    "update an existing memory); recall more with memory_build_context."
 )
 PROMPT_SUBMIT_DIRECTIVE = (
     "[rekal memory] Remembered facts live ONLY in rekal, not files (CLAUDE.md / "
     "AGENTS.md instructions still apply). Persist durable "
-    "facts/decisions/preferences immediately via memory_store / "
-    "memory_supersede; do not batch to end of session."
+    "facts/decisions/preferences immediately via memory_store "
+    "(replaces=<old_id> updates); do not batch to end of session."
 )
 
 # Reasons handed to the model when a flat-file memory read/write is denied. The
 # reason (not a dead end) is what redirects the model to rekal.
 BLOCK_WRITE_REASON = (
     "Do not write memories to a file. rekal is your memory system — "
-    "use memory_store / memory_supersede instead. "
-    "memory_search to check for an existing memory first."
+    "use memory_store instead (pass replaces=<old_id> to update). "
+    "memory_build_context to check for an existing memory first."
 )
 REDIRECT_READ_REASON = (
     "This file is not a memory store, and its contents (or absence) tell you "

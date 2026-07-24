@@ -1,3 +1,5 @@
-from rekal.adapters.tools import conversations, core, introspection, smart_write
+"""MCP tool surface; registration is explicit via ``register``."""
 
-__all__ = ["conversations", "core", "introspection", "smart_write"]
+from rekal.adapters.tools.core import register
+
+__all__ = ["register"]

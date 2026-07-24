@@ -2,11 +2,11 @@
 name: rekal-save
 description: >
   End-of-session memory capture with deduplication. Extracts durable knowledge,
-  checks for duplicates, stores or supersedes as appropriate. Use whenever a
+  checks for duplicates, stores or replaces as appropriate. Use whenever a
   session wraps up, a task finishes, or the user says goodbye/thanks/done. Also
   use when significant preferences, decisions, or discoveries emerge mid-session.
   Make sure to trigger this skill proactively. Err on the side of capturing.
-allowed-tools: mcp__rekal__memory_search mcp__rekal__memory_store mcp__rekal__memory_supersede mcp__rekal__memory_conflicts mcp__rekal__memory_set_project
+allowed-tools: mcp__rekal__memory_build_context mcp__rekal__memory_store
 ---
 
 Save durable knowledge from this session into rekal. Goal: user never repeats themselves across sessions.
@@ -42,65 +42,47 @@ Would a fresh agent in a new session benefit from knowing this?
 
 If zero candidates survive, stop here. Do not force-store.
 
-## Step 2: Set project scope
-
-```
-Single-project session?
-├── YES → memory_set_project(project="<name>")
-│         All subsequent stores auto-scope to this project.
-└── NO  → Skip. Set project= per memory in step 4.
-```
-
-## Step 3: Deduplicate each candidate
+## Step 2: Deduplicate each candidate
 
 For EVERY candidate, before storing:
 
 ```python
-memory_search(query="<candidate topic in natural language>", limit=5)
+memory_build_context(query="<candidate topic in natural language>")
 ```
 
 Read results. Apply:
 
 ```
-Search returned results?
+Recall returned results?
 ├── NO match at all
-│   └── Proceed to step 4 (store new)
+│   └── Proceed to step 3 (store new)
 │
 ├── Same topic, same info (duplicate)
 │   └── SKIP. Do not store.
 │
 ├── Same topic, new/updated info
-│   └── memory_supersede(old_id="<matched memory id>", new_content="<updated content>")
+│   └── memory_store(content="<updated content>", replaces="<matched memory id>")
 │
 └── Same topic, contradictory info
-    └── memory_supersede(old_id="<matched memory id>", new_content="<corrected content>")
+    └── memory_store(content="<corrected content>", replaces="<matched memory id>")
         Include what changed and why in the content.
 ```
 
-**Critical rule:** Two memories about the same topic must never coexist. Newer supersedes older. "User's preferred formatter" appears exactly once in the database.
+**Critical rule:** Two memories about the same topic must never coexist.
+`replaces` supersedes the older memory so it stops surfacing. "User's
+preferred formatter" appears exactly once in the database.
 
-## Step 4: Store surviving candidates
+## Step 3: Store surviving candidates
 
 Per candidate that passed dedup with no match:
 
 ```python
 memory_store(
     content="<self-contained content: what AND why>",
-    memory_type="<one of: fact, preference, procedure, context, episode>",
     tags=["<tag1>", "<tag2>"],    # 2-4 specific tags. Not "code", "project", "general".
-    project="<name>",             # Omit if memory_set_project was called, or if global.
+    project="<name>",             # Set if project-specific. Omit for global knowledge.
 )
 ```
-
-### Pick memory_type
-
-| Type | Use when |
-|------|----------|
-| `fact` | Objective truth about code, system, API |
-| `preference` | How user wants things done |
-| `procedure` | Step-by-step workflow |
-| `context` | Current project state (decays via recency scoring) |
-| `episode` | Notable event, debugging session, incident |
 
 ### Content must be self-contained
 
@@ -121,19 +103,11 @@ Good: ["ruff", "formatting", "linting"]
 Bad:  ["code", "tools", "project"]
 ```
 
-## Step 5: Conflict check + summary
-
-```python
-memory_conflicts(project="<project if scoped>")
-```
-
-If new conflicts appear:
-
-> "Noticed conflict: [X] vs [Y]. Want me to resolve it?"
+## Step 4: Summary
 
 Summarize what was saved:
 
-> "Saved 3 memories: Ruff preference, deploy procedure, auth architecture. Superseded 1 outdated API endpoint memory."
+> "Saved 3 memories: Ruff preference, deploy procedure, auth architecture. Replaced 1 outdated API endpoint memory."
 
 If nothing was saved (all skipped as duplicates), say so:
 
@@ -142,6 +116,5 @@ If nothing was saved (all skipped as duplicates), say so:
 ## Boundaries
 
 - This skill stores memories only. No reorganization, no cleanup. That's `/rekal-hygiene`.
-- No conversation creation: captures knowledge FROM conversations, not about them.
 - Never stores secrets, API keys, passwords, tokens.
 - Ask user before storing sensitive or personal content (health, finance, relationships).
