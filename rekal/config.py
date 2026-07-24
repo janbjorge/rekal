@@ -7,6 +7,7 @@ and scoring config without importing or constructing the MCP server.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -15,6 +16,18 @@ from pydantic import BaseModel, ValidationError
 
 def default_db_path() -> str:
     return str(Path.home() / ".rekal" / "memory.db")
+
+
+def resolve_readonly(db_path: str) -> bool:
+    """Whether *db_path* must be opened read-only.
+
+    True when ``REKAL_READONLY=1`` (measured benchmark runs) or when the file
+    exists but is not writable (e.g. a frozen seed DB) — in both cases a
+    read-write open would fail or mutate a file that must stay fixed.
+    """
+    if os.environ.get("REKAL_READONLY") == "1":
+        return True
+    return Path(db_path).exists() and not os.access(db_path, os.W_OK)
 
 
 def find_config_file(start: Path | None = None) -> Path | None:

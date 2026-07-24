@@ -27,6 +27,8 @@ async def memory_build_context(
 ) -> CompactContext:
     """Recall memories relevant to a query via hybrid FTS + vector + recency search."""
     db = ctx.request_context.lifespan_context.db
+    if db is None:
+        return CompactContext(query=query, memories=[])
     resolved_project = resolve_project(ctx, project)
     result = await db.build_context(
         query,
@@ -42,7 +44,14 @@ async def memory_store(
     ctx: Context,
     content: Annotated[
         str,
-        Field(description="Distilled, self-contained fact to remember (1-2 sentences)"),
+        Field(
+            description=(
+                "Distilled, self-contained knowledge: a 1-2 sentence fact, or a "
+                "350-500 word subsystem brief (headline + keywords, mechanism, "
+                "'Deviations:' section). Code claims must embed inline "
+                "(relative/path.py:LINE symbol) anchors verified this session."
+            )
+        ),
     ],
     project: Annotated[str | None, Field(description="Project scope for this memory")] = None,
     tags: Annotated[
@@ -56,6 +65,8 @@ async def memory_store(
 ) -> str:
     """Store a durable memory. Pass ``replaces`` to update an existing one."""
     db = ctx.request_context.lifespan_context.db
+    if db is None:
+        return "Memory database unavailable; nothing stored."
     resolved_project = resolve_project(ctx, project)
     if replaces is not None:
         new_id = await db.replace(replaces, content, project=resolved_project, tags=tags)
@@ -70,6 +81,8 @@ async def memory_delete(
 ) -> str:
     """Delete a memory by ID."""
     db = ctx.request_context.lifespan_context.db
+    if db is None:
+        return "Memory database unavailable; nothing deleted."
     deleted = await db.delete(memory_id)
     if deleted:
         return f"Deleted memory {memory_id}"

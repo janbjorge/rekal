@@ -60,15 +60,61 @@ def test_session_start_directive_when_no_memory() -> None:
     assert "only" in ctx.lower()
 
 
-def test_session_start_injects_memory() -> None:
+def test_session_start_injects_directive_only() -> None:
+    # SessionStart deliberately injects NO memories: query-less recency recall
+    # is mostly the wrong topic in a multi-subsystem DB. Directive only.
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "test.db")
         asyncio.run(make_db(db_path, ("Uses Postgres", None)))
 
         result = runner.invoke(app, ["--db", db_path, "hook", "session-start"])
         ctx = injected_context(result, "SessionStart")
-        assert "Uses Postgres" in ctx
-        assert "rekal" in ctx  # tail directive still present
+        assert "Uses Postgres" not in ctx
+        assert "rekal" in ctx
+
+
+def test_session_start_readonly_directive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REKAL_READONLY", "1")
+    result = runner.invoke(app, ["--db", "/nonexistent/db.sqlite", "hook", "session-start"])
+    ctx = injected_context(result, "SessionStart")
+    assert "read-only" in ctx
+    assert "memory_store" not in ctx
+
+
+def test_user_prompt_readonly_with_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Readonly + matching memory: block injected with trust header, no ids,
+    # no store nudge (readonly per-turn directive is empty).
+    monkeypatch.setenv("REKAL_READONLY", "1")
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        asyncio.run(make_db(db_path, ("Ruff over Black for formatting", None)))
+
+        with patch_embedder:
+            result = runner.invoke(
+                app,
+                ["--db", db_path, "hook", "user-prompt-submit"],
+                input=json.dumps({"prompt": "formatting"}),
+            )
+        ctx = injected_context(result, "UserPromptSubmit")
+        assert "Ruff over Black" in ctx
+        assert "(id " not in ctx
+        assert "memory_store" not in ctx
+        assert "cite anchors" in ctx  # trust header does the framing
+
+
+def test_user_prompt_readonly_no_match_injects_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Readonly + nothing recalled = empty payload = zero bytes injected;
+    # warm-empty must cost the same as cold.
+    monkeypatch.setenv("REKAL_READONLY", "1")
+    result = runner.invoke(
+        app,
+        ["--db", "/nonexistent/db.sqlite", "hook", "user-prompt-submit"],
+        input=json.dumps({"prompt": "anything"}),
+    )
+    assert result.exit_code == 0
+    assert result.stdout.strip() == ""
 
 
 def test_session_start_directive_when_recall_fails() -> None:
@@ -79,6 +125,21 @@ def test_session_start_directive_when_recall_fails() -> None:
         bad.write_text("this is not a sqlite database")
         result = runner.invoke(app, ["--db", str(bad), "hook", "session-start"])
         ctx = injected_context(result, "SessionStart")
+        assert "rekal" in ctx
+
+
+def test_user_prompt_directive_when_recall_fails() -> None:
+    # Corrupt DB → recall_text swallows the exception and the turn still gets
+    # the write-mode directive alone.
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "not.db"
+        bad.write_text("this is not a sqlite database")
+        result = runner.invoke(
+            app,
+            ["--db", str(bad), "hook", "user-prompt-submit"],
+            input=json.dumps({"prompt": "anything"}),
+        )
+        ctx = injected_context(result, "UserPromptSubmit")
         assert "rekal" in ctx
 
 

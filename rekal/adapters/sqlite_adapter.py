@@ -177,6 +177,23 @@ async def init_connection(db: aiosqlite.Connection, dimensions: int) -> None:
     await db.commit()
 
 
+async def init_readonly_connection(db: aiosqlite.Connection) -> None:
+    """Prepare a read-only connection: no migration, no DDL, no commit.
+
+    A frozen benchmark seed DB (chmod 0444) or any ``REKAL_READONLY=1``
+    session must be able to search without a single write. Old-schema DBs
+    open in a degraded mode (superseded rows may resurface in search since
+    ``memory_links`` exclusion never ran) — acceptable for recall, and the
+    benchmark re-learns its seed DBs under the current schema anyway.
+    """
+    db.row_factory = aiosqlite.Row
+    await db.enable_load_extension(True)
+    await db.load_extension(sqlite_vec.loadable_path())
+    await db.enable_load_extension(False)
+    # Belt and braces on top of the mode=ro open.
+    await db.execute("PRAGMA query_only = ON")
+
+
 def quote_fts(query: str) -> str:
     """Wrap each token in FTS5 phrase quotes so the query is always treated as literal text."""
     tokens = query.replace('"', " ").replace("\x00", "").split()
@@ -231,13 +248,22 @@ class SqliteDatabase:
         embed: EmbeddingFunc,
         *,
         dimensions: int = 384,
+        readonly: bool = False,
     ) -> SqliteDatabase:
+        if readonly and db_path == ":memory:":
+            raise ValueError("cannot open :memory: read-only; it has no prior content")
         # connect() starts a non-daemon worker thread, so a failure during
         # init (e.g. the path is not a SQLite file) must close the connection
         # or the orphaned thread blocks interpreter/pytest exit.
-        db = await aiosqlite.connect(db_path)
+        if readonly:
+            db = await aiosqlite.connect(f"file:{db_path}?mode=ro", uri=True)
+        else:
+            db = await aiosqlite.connect(db_path)
         try:
-            await init_connection(db, dimensions)
+            if readonly:
+                await init_readonly_connection(db)
+            else:
+                await init_connection(db, dimensions)
         except Exception:
             await db.close()
             raise
@@ -253,13 +279,14 @@ class SqliteDatabase:
         embed: EmbeddingFunc,
         *,
         dimensions: int = 384,
+        readonly: bool = False,
     ) -> AsyncIterator[SqliteDatabase]:
         """Context-managed create()/close(): open a DB, close it on exit.
 
         Lets callers drop the ``db = await create(...); try: ... finally:
         await db.close()`` boilerplate for ``async with session(...) as db:``.
         """
-        db = await SqliteDatabase.create(db_path, embed, dimensions=dimensions)
+        db = await SqliteDatabase.create(db_path, embed, dimensions=dimensions, readonly=readonly)
         try:
             yield db
         finally:

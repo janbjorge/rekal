@@ -16,10 +16,12 @@ from pathlib import PurePosixPath, PureWindowsPath
 MEMORY_STEMS = frozenset(("memory", "memories"))
 MEMORY_SUFFIXES = frozenset((".md", ".txt"))
 
-# A tail directive always follows the recalled memory block so the "memory
-# lives only in rekal" guardrail survives even when the DB is empty or recall
-# fails. SessionStart runs once (verbose); UserPromptSubmit runs every turn
-# (terse — its token cost is paid repeatedly).
+# A tail directive follows the recalled memory block. SessionStart runs once
+# (verbose); UserPromptSubmit runs every turn (terse — its token cost is paid
+# repeatedly). Each has a readonly variant: a read-only session must never be
+# told to store (the tool is not registered — every attempt would burn a
+# turn), and when nothing was recalled the readonly payload is empty so the
+# hook injects zero bytes.
 SESSION_START_DIRECTIVE = (
     "Persistent memory — durable facts, decisions, and preferences recalled "
     "across sessions — lives ONLY in rekal, never in files: there is no "
@@ -27,14 +29,27 @@ SESSION_START_DIRECTIVE = (
     "remembered facts, and a missing file as meaningless. This concerns memory "
     "only: instructions in CLAUDE.md / AGENTS.md still apply in full. Persist "
     "durable facts as they emerge via memory_store (pass replaces=<old_id> to "
-    "update an existing memory); recall more with memory_build_context."
+    "update an existing memory); for code facts embed file:line anchors. "
+    "Relevant memories are injected automatically on each prompt; recall more "
+    "with memory_build_context only when that block is missing."
+)
+SESSION_START_DIRECTIVE_READONLY = (
+    "rekal memory is read-only this session. Relevant prior knowledge, if "
+    "any, is injected automatically under '## rekal memory' — trust it and "
+    "build on it; read source only for gaps. Do not attempt to store "
+    "memories; no store tool exists here."
 )
 PROMPT_SUBMIT_DIRECTIVE = (
     "[rekal memory] Remembered facts live ONLY in rekal, not files (CLAUDE.md / "
     "AGENTS.md instructions still apply). Persist durable "
     "facts/decisions/preferences immediately via memory_store "
-    "(replaces=<old_id> updates); do not batch to end of session."
+    "(replaces=<old_id> updates; embed file:line anchors for code facts); "
+    "do not batch to end of session."
 )
+# Readonly turns carry no per-turn directive: the injected memory block's own
+# header does the trust framing, and with no store tool there is nothing to
+# nudge. Empty directive + no recall = empty payload = zero bytes injected.
+PROMPT_SUBMIT_DIRECTIVE_READONLY = ""
 
 # Reasons handed to the model when a flat-file memory read/write is denied. The
 # reason (not a dead end) is what redirects the model to rekal.
@@ -60,8 +75,15 @@ def is_memory_file(path: str) -> bool:
 
 
 def context_payload(event: str, directive: str, memory: str | None = None) -> dict[str, object]:
-    """Payload injecting recalled ``memory`` (when present) then ``directive``."""
-    parts = [memory, directive] if memory else [directive]
+    """Payload injecting recalled ``memory`` (when present) then ``directive``.
+
+    Nothing to inject (no memory, empty directive) returns ``{}`` — Claude
+    Code treats it as a no-op, so a readonly turn with no matching memories
+    costs zero context bytes.
+    """
+    parts = [p for p in (memory, directive) if p]
+    if not parts:
+        return {}
     return {
         "hookSpecificOutput": {
             "hookEventName": event,
