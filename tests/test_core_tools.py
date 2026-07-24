@@ -12,6 +12,7 @@ from rekal.adapters.mcp_adapter import AppContext
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.adapters.tools.core import memory_build_context, memory_delete, memory_store
 from rekal.models import CompactMemory
+from rekal.scoring import ScoringWeights
 
 
 @dataclass
@@ -26,7 +27,7 @@ class FakeContext:
 
 def _ctx(
     db: SqliteDatabase,
-    file_config: dict[str, float] | None = None,
+    weights: ScoringWeights | None = None,
     default_project: str | None = None,
 ) -> Context:
     # Structurally what the tools read from a real Context; cast keeps the
@@ -36,7 +37,9 @@ def _ctx(
         FakeContext(
             request_context=FakeRequestContext(
                 lifespan_context=AppContext(
-                    db=db, default_project=default_project, file_config=file_config or {}
+                    db=db,
+                    default_project=default_project,
+                    weights=weights or ScoringWeights(),
                 )
             )
         ),
@@ -126,10 +129,10 @@ async def test_memory_build_context_tool_min_score_filters(db: SqliteDatabase) -
     assert nothing.memories == []
 
 
-async def test_memory_build_context_tool_uses_file_config(db: SqliteDatabase) -> None:
+async def test_memory_build_context_tool_uses_session_weights(db: SqliteDatabase) -> None:
     await db.store("File config weighted note about linkers")
     default = await memory_build_context(_ctx(db), "linkers")
     weighted = await memory_build_context(
-        _ctx(db, file_config={"w_fts": 0.8, "w_vec": 0.1, "w_recency": 0.1}), "linkers"
+        _ctx(db, weights=ScoringWeights(w_fts=0.8, w_vec=0.1, w_recency=0.1)), "linkers"
     )
     assert default.memories[0].score != weighted.memories[0].score

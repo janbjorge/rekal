@@ -88,8 +88,7 @@ async def test_prune_dry_run_returns_matches(db: SqliteDatabase) -> None:
     drop1 = await db.store("Drop me", project="trash")
     drop2 = await db.store("Drop me too", project="trash")
 
-    count, ids = await db.prune(project="trash", dry_run=True)
-    assert count == 2
+    ids = await db.prune(project="trash", dry_run=True)
     assert set(ids) == {drop1, drop2}
     # Nothing actually deleted on dry run
     assert await db.get(drop1) is not None
@@ -101,8 +100,7 @@ async def test_prune_by_project_deletes(db: SqliteDatabase) -> None:
     keep = await db.store("Keep me", project="other")
     drop = await db.store("Drop me", project="trash")
 
-    count, ids = await db.prune(project="trash", dry_run=False)
-    assert count == 1
+    ids = await db.prune(project="trash", dry_run=False)
     assert ids == [drop]
     assert await db.get(drop) is None
     assert await db.get(keep) is not None
@@ -118,8 +116,7 @@ async def test_prune_by_before_timestamp(db: SqliteDatabase) -> None:
     await db.db.commit()
     new_id = await db.store("New")
 
-    count, ids = await db.prune(before="2020-01-01 00:00:00", dry_run=False)
-    assert count == 1
+    ids = await db.prune(before="2020-01-01 00:00:00", dry_run=False)
     assert ids == [old_id]
     assert await db.get(old_id) is None
     assert await db.get(new_id) is not None
@@ -127,8 +124,7 @@ async def test_prune_by_before_timestamp(db: SqliteDatabase) -> None:
 
 async def test_prune_no_matches_skips_delete(db: SqliteDatabase) -> None:
     await db.store("Stay", project="alive")
-    count, ids = await db.prune(project="ghost", dry_run=False)
-    assert count == 0
+    ids = await db.prune(project="ghost", dry_run=False)
     assert ids == []
 
 

@@ -384,7 +384,7 @@ MCP Server (rekal)
 | "Memory lives in rekal, not files" | MCP server instructions + PreToolUse hooks (read + write) | Instructions guide, hooks enforce both directions |
 | "Call memory_build_context first" | SessionStart hook | Automatic, every session |
 | "Keep using rekal, don't drift" | UserPromptSubmit hook | Re-asserts every turn as context grows |
-| "How to store/search/supersede" | MCP server instructions | Always present next to the tools |
+| "How to recall/store/replace" | MCP server instructions | Always present next to the tools |
 | "Capture session knowledge" | rekal-save skill | Explicit trigger, detailed procedure |
 | "Bootstrap project" | rekal-init skill | Explicit trigger |
 | "Clean up database" | rekal-hygiene skill | Explicit trigger |

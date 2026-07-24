@@ -93,6 +93,13 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
     if "memory_type" not in cols:
         return  # fresh DB or already minimal
 
+    # Every rekal-created DB has memory_links (it shipped in the initial
+    # SCHEMA), but a hand-built old-shape DB without it would otherwise
+    # crash the superseded-row exclusion below. Created empty if missing;
+    # dropped again at the end of this migration either way.
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS memory_links (from_id TEXT, to_id TEXT, relation TEXT)"
+    )
     await db.execute(
         """
         CREATE TABLE memories_minimal (
@@ -180,7 +187,7 @@ def parse_tags(tags: str | None) -> list[str]:
         return []
 
 
-def row_to_memory(row: aiosqlite.Row, score: float | None = None) -> MemoryResult:
+def row_to_memory(row: aiosqlite.Row) -> MemoryResult:
     return MemoryResult(
         id=row["id"],
         content=row["content"],
@@ -188,7 +195,6 @@ def row_to_memory(row: aiosqlite.Row, score: float | None = None) -> MemoryResul
         tags=parse_tags(row["tags"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
-        score=score,
     )
 
 
@@ -308,6 +314,11 @@ class SqliteDatabase:
         weights: ScoringWeights,
         min_score: float = 0.0,
     ) -> list[MemoryResult]:
+        """Hybrid FTS + vector + recency search.
+
+        ``min_score`` is an inclusive floor: rows scoring exactly at it
+        survive; only strictly lower scores are dropped.
+        """
         embedding = self.embed(query)
 
         # Vector search — candidate IDs + distances.
@@ -382,8 +393,8 @@ class SqliteDatabase:
         project: str | None = None,
         before: str | None = None,
         dry_run: bool = True,
-    ) -> tuple[int, list[str]]:
-        """Bulk-delete memories matching scope filters.
+    ) -> list[str]:
+        """Bulk-delete memories matching scope filters; returns matched IDs.
 
         Requires at least one of project / before to avoid an accidental
         full wipe. ``before`` is an ISO timestamp ``YYYY-MM-DD HH:MM:SS``;
@@ -407,7 +418,7 @@ class SqliteDatabase:
                 ids.append(row["id"])
 
         if dry_run or not ids:
-            return len(ids), ids
+            return ids
 
         filter_params: tuple[SqlParam, ...] = (project, project, before, before)
         await self.db.execute(
@@ -429,7 +440,7 @@ class SqliteDatabase:
             filter_params,
         )
         await self.db.commit()
-        return len(ids), ids
+        return ids
 
     async def get(self, memory_id: str) -> MemoryResult | None:
         async with self.db.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)) as cursor:
