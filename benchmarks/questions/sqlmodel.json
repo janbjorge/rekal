@@ -1,0 +1,62 @@
+[
+  {
+    "pair": "metaclass-namespace",
+    "subsystem": "Metaclass namespace partitioning (sqlmodel/main.py)",
+    "seed": "While a model class body is being built, how does the metaclass split the namespace and annotations before handing them to the Pydantic base metaclass, and how does the final annotation dict get reassembled on the created class?",
+    "heldout": "Class-definition keywords like config options and a registry can be passed when declaring a model. Which of those get forwarded to the Pydantic superclass and which get stripped, and what precedence decides whether a class counts as a table model?"
+  },
+  {
+    "pair": "relationship-instrumentation",
+    "subsystem": "Relationship instrumentation (sqlmodel/main.py)",
+    "seed": "For a table model, how do declared relationship descriptors become real SQLAlchemy relationships during class init? How is the annotation unwrapped, and when does it get re-wrapped so SQLAlchemy accepts it?",
+    "heldout": "When a relationship declares a link model or cascade deletes, how do those options translate into the underlying SQLAlchemy relationship arguments? And what guard keeps this from running twice when a framework clones the model, say for a response model?"
+  },
+  {
+    "pair": "field-to-column",
+    "subsystem": "Field-to-Column type mapping (sqlmodel/main.py)",
+    "seed": "How does a model field become a SQLAlchemy Column, and in what order does the resolved Python type get matched against candidate SQLAlchemy types?",
+    "heldout": "How is a column's final nullability computed from primary-key status, an explicit nullable flag, and the field's optionality? There's one combination involving a foreign key's on-delete behavior that raises outright: which?"
+  },
+  {
+    "pair": "field-metadata",
+    "subsystem": "Field() metadata capture (sqlmodel/main.py)",
+    "seed": "When Field(...) is called with ORM options like primary_key, foreign_key, index, or a column override, where do those get stored so column construction can read them back later?",
+    "heldout": "How does Field resolve the final validation alias and serialization alias when both explicit arguments and a schema-extra dict supply values, and which argument combinations get rejected as mutually exclusive?"
+  },
+  {
+    "pair": "table-validate",
+    "subsystem": "model_validate override (sqlmodel/_compat.py)",
+    "seed": "How does model_validate differ between a table model and a plain model, and what special instance-creation step happens for table models before the Pydantic validator runs?",
+    "heldout": "During validation, how do relationship values and the optional update mapping get applied to the resulting object, and how is fields_set preserved through the whole process?"
+  },
+  {
+    "pair": "init-lifecycle",
+    "subsystem": "Instance __new__/__init__ lifecycle (sqlmodel/main.py, _compat.py)",
+    "seed": "How does a model instance know whether its construction should run full init logic or only set up internal ORM state, and what mechanism carries that decision?",
+    "heldout": "Why does the model define a custom object allocator that pre-seeds certain private attributes, and how does table-model construction reconcile a pre-existing instance dict with freshly computed field values?"
+  },
+  {
+    "pair": "setattr-dual-write",
+    "subsystem": "Attribute assignment propagation (sqlmodel/main.py)",
+    "seed": "When you assign an attribute on a model instance, how does that write reach both the ORM layer and the validation layer so they stay consistent?",
+    "heldout": "One attribute name bypasses the normal assignment path entirely: which one, and under what conditions does a write skip the validation layer, especially for relationship attributes or uninstrumented ones?"
+  },
+  {
+    "pair": "session-exec",
+    "subsystem": "Session.exec typing and result shaping (sqlmodel/orm/session.py)",
+    "seed": "How does Session.exec wrap the underlying execute call, and how are its overloads set up so the return type follows the kind of statement you pass?",
+    "heldout": "At runtime, why does exec return scalar results for one statement class but the raw result for others, and how does the library discourage using the inherited execute and query methods?"
+  },
+  {
+    "pair": "async-exec",
+    "subsystem": "AsyncSession.exec bridging (sqlmodel/ext/asyncio/session.py)",
+    "seed": "How does the async session's exec end up running the synchronous session's exec, and how does the awaited result come out of that?",
+    "heldout": "Before dispatching, how does async exec merge caller-supplied execution options with the options the library requires, and what gets done to the result so streaming and async consumption work?"
+  },
+  {
+    "pair": "select-dispatch",
+    "subsystem": "Select/SelectOfScalar hierarchy (sqlmodel/sql/_expression_select_cls.py, _expression_select_gen.py)",
+    "seed": "How is the select-statement class hierarchy structured, and how does select() decide at runtime which class to instantiate for a given set of entities?",
+    "heldout": "Why is there a shared base class that re-declares where and having, and what typing problem in Session.exec's overloads does that split avoid?"
+  }
+]

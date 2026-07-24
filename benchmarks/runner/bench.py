@@ -57,6 +57,14 @@ WARM_CFG = CONFIG / "warm"
 
 # Pinned targets: exact commit matters for reproducibility, so it is fetched
 # by SHA (GitHub allows this) rather than trusting whatever HEAD happens to be.
+#
+# Selection rule learned the expensive way (pytorch): fame beats size. Cold
+# answers world-famous internals from training data in 1 turn / 0 reads, so
+# there is nothing for memory to displace. Repos here are popular but chosen
+# so parametric knowledge is STALE (fast churn: tinygrad, langgraph), SHALLOW
+# (internals nobody blogs about: textual, sqlmodel), or THIN (recent/rising:
+# litestar, marimo). pytorch/pydantic stay as documented boundary cases —
+# their questions need commit-pinning before their runs mean anything.
 REPO_SPECS = {
     "tinygrad": (
         "git@github.com:tinygrad/tinygrad.git",
@@ -67,6 +75,26 @@ REPO_SPECS = {
     "pydantic": (
         "git@github.com:pydantic/pydantic.git",
         "a2a6577d4c329dd574a45dbb01a8feaa16b1ad3d",
+    ),
+    "sqlmodel": (
+        "git@github.com:fastapi/sqlmodel.git",
+        "967abf31bb324fdd18f0d24058ae43c8edff59c4",
+    ),
+    "textual": (
+        "git@github.com:Textualize/textual.git",
+        "06dbeef4bb70fb718236aa418ed658ef4667a126",
+    ),
+    "langgraph": (
+        "git@github.com:langchain-ai/langgraph.git",
+        "1e1ca88dad9c7e708263257fa9fc27a3fbdfff68",
+    ),
+    "litestar": (
+        "git@github.com:litestar-org/litestar.git",
+        "5427d26f8fbfe08b68a7648c5966e4ba04c47b07",
+    ),
+    "marimo": (
+        "git@github.com:marimo-team/marimo.git",
+        "f514eddcf62a5d48b1bc6fab8d32d8418c60fff3",
     ),
 }
 

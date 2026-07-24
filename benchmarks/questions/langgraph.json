@@ -1,0 +1,62 @@
+[
+  {
+    "pair": "reducer-channels",
+    "subsystem": "Reducer channels (libs/langgraph/langgraph/channels/binop.py)",
+    "seed": "A channel backed by a binary reducer receives several values in one super-step. In what order do they fold into the stored value, what happens with the very first value when the channel is still empty, and what does the channel persist to a checkpoint versus expose on read?",
+    "heldout": "A single write can bypass the reducer entirely and overwrite the stored value. How is that write recognized, including forms that survive a JSON round-trip, and what happens when two arrive in the same super-step, or when ordinary values follow one in the same batch?"
+  },
+  {
+    "pair": "superstep-writes",
+    "subsystem": "Super-step write application (libs/langgraph/langgraph/pregel/_algo.py)",
+    "seed": "Walk through the phase that applies a super-step's task writes to channels: the seen-version bookkeeping, consuming read channels, grouping writes per channel, and how the single next-version value for the whole step gets chosen.",
+    "heldout": "After normal writes are applied, the step can be marked as tentatively the last one. What condition involving updated channels and the trigger-to-nodes map gates that, which channel method gets invoked, and what happens to channels that were NOT written in a step that did bump?"
+  },
+  {
+    "pair": "checkpoint-serde",
+    "subsystem": "Checkpoint serde (libs/checkpoint/langgraph/checkpoint/serde/jsonplus.py)",
+    "seed": "How does the default serializer turn an arbitrary Python object into a stored blob? Cover the common-case type tag, how pydantic v2 models, dataclasses, sets, and datetimes get their extension codes, and the fallback when encoding fails.",
+    "heldout": "On the read path, how does the deserializer decide whether a (module, name) type may be reconstructed at all? What changes under the strict-mode env flag versus the permissive default, and what value comes back in place of a blocked type?"
+  },
+  {
+    "pair": "retry-timeout",
+    "subsystem": "Node retry and timeout policy (libs/langgraph/langgraph/pregel/_retry.py)",
+    "seed": "A task raises. How does the runner pick the applicable retry policy from a sequence of policies, how does the sleep between attempts grow across failures, and what makes it give up and re-raise instead?",
+    "heldout": "Async nodes can be bounded by both a run timeout and an idle timeout. What does each measure, which node activities count as progress that resets the idle clock under the different refresh modes, and what exception surfaces when either bound trips?"
+  },
+  {
+    "pair": "conditional-edges",
+    "subsystem": "Conditional edges / branching (libs/langgraph/langgraph/graph/_branch.py)",
+    "seed": "A conditional edge's routing function has no explicit destination mapping. How do the reachable destinations get discovered from the function itself, and how does its return value turn into the channel writes that schedule the next nodes?",
+    "heldout": "Which destination values get rejected when a branch resolves its targets, routing back to the entry point, say, or a dynamic packet aimed at the terminal node, with which exceptions? And when does the branch return its input unchanged instead of writing at all?"
+  },
+  {
+    "pair": "interrupts",
+    "subsystem": "Interrupts / human-in-the-loop (libs/langgraph/langgraph/types.py, pregel/_algo.py)",
+    "seed": "A node calls the interrupt primitive. How does the runtime choose between pausing (raising) and handing back a previously supplied resume value, and how do multiple interrupt calls inside one node get matched to entries in the resume list?",
+    "heldout": "A resume value can arrive globally or targeted at one specific task and namespace. How does the per-task scratchpad find each from pending writes: the sentinel task id, the namespace-hash mapping, and when does the global lookup fall through to a parent scratchpad?"
+  },
+  {
+    "pair": "delta-checkpointing",
+    "subsystem": "Delta-channel checkpointing (libs/langgraph/langgraph/pregel/_checkpoint.py)",
+    "seed": "For delta channels, when does the checkpoint builder write a full snapshot blob versus omit the value entirely? Two independent thresholds trigger a snapshot: which, and why does the builder sometimes bump the channel version by hand when snapshotting?",
+    "heldout": "Hydrating channels from a stored checkpoint: how does a delta channel get its value back when no snapshot exists at that checkpoint, how are such channels batched, and what does the ancestor walk return (seed plus writes) that gets replayed onto the fresh channel?"
+  },
+  {
+    "pair": "run-stream-pump",
+    "subsystem": "Streaming plumbing (libs/langgraph/langgraph/stream/run_stream.py, _mux.py)",
+    "seed": "In the caller-driven run-stream design, what actually advances the graph one event at a time, and why is no background thread needed? Follow one pulled event through the mux to the registered projections, and how terminal-state tracking fills the final output and interrupt flags.",
+    "heldout": "How do events from nested subgraphs reach the consumer and drive the root pump? And when the caller closes the stream early, what's the teardown sequence that cancels in-flight nodes and nested subgraphs?"
+  },
+  {
+    "pair": "subgraph-namespacing",
+    "subsystem": "Subgraph invocation and namespacing (libs/langgraph/langgraph/pregel/main.py, _retry.py)",
+    "seed": "How does a compiled graph enumerate its subgraphs, immediate versus recursive? Where does it look on a node to find an embedded subgraph, and how does the separator-joined checkpoint namespace get built for a task that runs one?",
+    "heldout": "When a command bubbles from a subgraph up to its parent, how is the parent's checkpoint namespace derived: which segments get stripped, including the purely-numeric disambiguation ones, and how does a command get matched to the current graph versus reassigned to the parent?"
+  },
+  {
+    "pair": "state-schema-channels",
+    "subsystem": "State schema handling (libs/langgraph/langgraph/graph/state.py)",
+    "seed": "How does each annotated field of a state schema become a channel? What's the precedence among managed values, explicit channel annotations, and reducer callables, and which channel type does a reducer field get versus a plain one?",
+    "heldout": "An annotation carries a callable in its metadata. How does it get validated as a reducer: what about its parameter signature is checked, and what error fires on failure? And how does a channel given as a class differ from an already-constructed instance, including the re-parameterization for delta channels?"
+  }
+]

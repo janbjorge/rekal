@@ -2,61 +2,61 @@
   {
     "pair": "dispatcher",
     "subsystem": "Dispatcher (aten/src/ATen/core/dispatch, c10)",
-    "seed": "How does PyTorch's dispatcher route an operator call to the right kernel? Explain DispatchKey and the dispatch key set.",
-    "heldout": "How are per-backend (CPU/CUDA/Autograd) kernels registered with the dispatcher and how is the resolved kernel cached?"
+    "seed": "When an operator gets called in PyTorch, how does the dispatcher pick which kernel runs? Walk through what a DispatchKey is and how the dispatch key set of the arguments drives the choice.",
+    "heldout": "How do per-backend kernels (CPU, CUDA, Autograd) get registered with the dispatcher, and where does the resolved kernel end up cached?"
   },
   {
     "pair": "op-registration",
     "subsystem": "ATen op registration (aten/src/ATen/native/native_functions.yaml)",
-    "seed": "How are ATen operators declared in native_functions.yaml and how does codegen turn a YAML entry into a callable op?",
-    "heldout": "How do you add a new native operator with CPU and CUDA implementations, and which files and codegen steps are involved?"
+    "seed": "How does an entry in native_functions.yaml become a callable ATen operator? What does the codegen actually generate from the YAML?",
+    "heldout": "If I want to add a new native operator with both CPU and CUDA implementations, which files do I touch and which codegen steps pick them up?"
   },
   {
     "pair": "autograd-engine",
     "subsystem": "Autograd engine (torch/csrc/autograd/)",
-    "seed": "How does PyTorch's autograd engine build the backward graph? Explain Node, edge_list, and the executed backward order.",
-    "heldout": "How does the autograd engine parallelize backward across devices/threads and handle ready-queue scheduling?"
+    "seed": "How does the autograd engine build the backward graph during the forward pass? What is a Node here, what lives in its edge_list, and what determines the order the backward actually executes in?",
+    "heldout": "How does the autograd engine spread backward execution across devices and threads, and how does its ready-queue scheduling work?"
   },
   {
     "pair": "tensorimpl",
     "subsystem": "TensorImpl / Storage (c10/core/TensorImpl.h, Storage)",
-    "seed": "How is a torch.Tensor represented at the C++ level? Explain TensorImpl, Storage, and how sizes/strides/offset describe a view.",
-    "heldout": "How does an in-place view operation (e.g. narrow, as_strided) share storage while updating version counters for autograd correctness?"
+    "seed": "What does a torch.Tensor look like at the C++ level? Walk through TensorImpl and Storage, and how sizes, strides, and the storage offset together describe a view.",
+    "heldout": "When a view op like narrow or as_strided shares storage with its base, how do version counters keep autograd correct after an in-place write?"
   },
   {
     "pair": "dynamo",
     "subsystem": "TorchDynamo (torch/_dynamo/)",
-    "seed": "How does TorchDynamo trace Python bytecode into an FX graph? What are guards and why are they needed?",
-    "heldout": "What causes a Dynamo graph break, and how does Dynamo recompile when a guard fails?"
+    "seed": "How does TorchDynamo turn Python bytecode into an FX graph, and why does it need guards at all?",
+    "heldout": "What actually causes a Dynamo graph break, and what happens when a guard fails and it has to recompile?"
   },
   {
     "pair": "inductor",
     "subsystem": "TorchInductor (torch/_inductor/)",
-    "seed": "How does TorchInductor lower an FX graph to fused kernels? What IR does it use before codegen?",
-    "heldout": "How does Inductor decide fusion and generate a Triton kernel for a pointwise+reduction sequence?"
+    "seed": "How does TorchInductor get from an FX graph to fused kernels? What intermediate IR does it lower through before codegen?",
+    "heldout": "For a pointwise op followed by a reduction, how does Inductor decide they can fuse, and how does the Triton kernel for that pair get generated?"
   },
   {
     "pair": "cuda-allocator",
     "subsystem": "CUDA caching allocator (c10/cuda/CUDACachingAllocator.cpp)",
-    "seed": "How does PyTorch's CUDA caching allocator manage GPU memory? Explain blocks, pools, and stream awareness.",
-    "heldout": "How does the caching allocator handle fragmentation and when does it call cudaFree / return memory to the driver?"
+    "seed": "How does the CUDA caching allocator carve GPU memory into blocks and pools, and what role does stream awareness play when a block gets reused?",
+    "heldout": "What does the caching allocator do about fragmentation, and under what conditions does it actually call cudaFree and hand memory back to the driver?"
   },
   {
     "pair": "fx",
     "subsystem": "torch.fx (torch/fx/)",
-    "seed": "How does torch.fx represent a captured module as a Graph? Explain Node, opcode types, and symbolic_trace.",
-    "heldout": "How do you write an fx graph transformation/pass that rewrites nodes, and how is the transformed graph recompiled into a GraphModule?"
+    "seed": "How does torch.fx represent a captured module as a Graph? What kinds of Node opcodes exist and what does symbolic_trace do to produce them?",
+    "heldout": "How do I write an fx pass that rewrites nodes in a graph, and how does the modified graph get recompiled back into a working GraphModule?"
   },
   {
     "pair": "distributed-ddp",
     "subsystem": "DistributedDataParallel / c10d (torch/distributed/)",
-    "seed": "How does DistributedDataParallel synchronize gradients across processes? Explain the reducer and gradient buckets.",
-    "heldout": "How does DDP overlap the allreduce communication with the backward pass, and how are buckets formed and ordered?"
+    "seed": "How does DistributedDataParallel keep gradients in sync across processes? What does the reducer do and why are gradients grouped into buckets?",
+    "heldout": "How does DDP overlap allreduce communication with the ongoing backward pass, and what determines how buckets are formed and ordered?"
   },
   {
     "pair": "dataloader",
     "subsystem": "DataLoader (torch/utils/data/)",
-    "seed": "How does PyTorch's DataLoader implement multi-process data loading? Explain workers, the index queue, and prefetching.",
-    "heldout": "How does the DataLoader handle worker seeding, sharding of samples across workers, and clean shutdown of worker processes?"
+    "seed": "How does DataLoader do multi-process loading under the hood: what do the workers consume from the index queue, and how does prefetching stay ahead of the training loop?",
+    "heldout": "How does DataLoader seed its workers, split samples between them, and shut the worker processes down cleanly?"
   }
 ]

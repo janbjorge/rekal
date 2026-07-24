@@ -1,0 +1,62 @@
+[
+  {
+    "pair": "compositor",
+    "subsystem": "Compositor (src/textual/_compositor.py)",
+    "seed": "How does the compositor work out which parts of the screen actually changed and emit a partial update instead of redrawing everything?",
+    "heldout": "When widgets on different layers overlap the same cell, how does the compositor decide whose content shows there, and how does that same bookkeeping answer which widget sits under a given screen coordinate?"
+  },
+  {
+    "pair": "message-dispatch",
+    "subsystem": "Message dispatch (src/textual/message_pump.py)",
+    "seed": "When a message arrives at an object, how does it find every handler method that should run for it?",
+    "heldout": "If a base class and a subclass both define a handler for the same event, and the subclass adds a selector-decorated handler too, what order do they run in, and what makes the naming-convention handler get skipped or the chain stop early?"
+  },
+  {
+    "pair": "reactive",
+    "subsystem": "Reactive attributes (src/textual/reactive.py)",
+    "seed": "Walk through what happens, step by step, when a value is assigned to a reactive attribute.",
+    "heldout": "When do watchers fire even though the new value equals the old one, and how can re-running a compute method end up triggering further watchers?"
+  },
+  {
+    "pair": "css-cascade",
+    "subsystem": "CSS cascade (src/textual/css/stylesheet.py)",
+    "seed": "Several matching CSS rules set the same property on a node: how does the stylesheet pick the winner?",
+    "heldout": "When two matching rules tie on specificity, what breaks the tie, and how do the framework's built-in default rules enter that comparison differently from user rules?"
+  },
+  {
+    "pair": "layout-arrange",
+    "subsystem": "Layout arrange (src/textual/_arrange.py)",
+    "seed": "How do a container's children end up with final placements, from grouping into layers through positioning docked versus flow widgets?",
+    "heldout": "How does docking eat into the region left for flow-layout widgets within a layer, and how does container alignment get applied to the placements afterward?"
+  },
+  {
+    "pair": "widget-mount",
+    "subsystem": "Widget mounting (src/textual/widget.py)",
+    "seed": "When widgets get mounted onto a parent, how does the returned awaitable let the caller wait until the new widgets are actually ready?",
+    "heldout": "How does a declarative compose method turn into actually-mounted children, and where do default styling and reactive initialization land relative to the Mount event?"
+  },
+  {
+    "pair": "screen-stack",
+    "subsystem": "Screen stack (src/textual/app.py)",
+    "seed": "How does the app manage its stack of screens through push, pop, and switch?",
+    "heldout": "How do modes split the app into separate screen stacks, and what happens to a screen's message processing and rendering once another screen is pushed on top of it?"
+  },
+  {
+    "pair": "timer",
+    "subsystem": "Timer (src/textual/timer.py)",
+    "seed": "How does a repeating timer schedule its ticks so the timing doesn't drift over many iterations?",
+    "heldout": "With skip enabled and the loop running behind, how does a timer compute how many intervals to jump, and what do pause and reset do to its tick count and timing baseline?"
+  },
+  {
+    "pair": "strip-rendering",
+    "subsystem": "Strip rendering (src/textual/strip.py)",
+    "seed": "How does a Strip represent one line of rendered output, and how does it crop itself to a horizontal cell range?",
+    "heldout": "When a strip is asked for a cell length that doesn't match its content, how does it truncate or pad, and what happens to a double-width character that would be cut down the middle?"
+  },
+  {
+    "pair": "workers",
+    "subsystem": "Worker manager (src/textual/worker_manager.py)",
+    "seed": "How does the worker manager create, track, and start workers on behalf of a node?",
+    "heldout": "When a worker is created as exclusive, exactly which other workers get cancelled: how is that scoped by group and by the node that started them?"
+  }
+]

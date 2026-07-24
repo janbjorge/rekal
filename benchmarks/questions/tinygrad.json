@@ -2,61 +2,61 @@
   {
     "pair": "uop-core",
     "subsystem": "UOp graph (tinygrad/uop/ops.py)",
-    "seed": "In tinygrad, what is a UOp? List its fields and explain how UOps are deduplicated/interned so identical nodes are shared.",
-    "heldout": "How does UOp graph rewriting stay immutable, and how does UOp.replace produce a new node without mutating the original graph?"
+    "seed": "What is a UOp in tinygrad, what fields does one carry, and how does interning make sure two identical nodes end up as the same shared object?",
+    "heldout": "UOp graphs are supposed to be immutable, so what does UOp.replace actually do to give you a modified node without touching the original graph?"
   },
   {
     "pair": "pattern-matcher",
     "subsystem": "PatternMatcher / UPat (tinygrad/uop/upat.py, ops.py)",
-    "seed": "How does tinygrad's PatternMatcher work? Explain how a UPat rewrite rule is defined and how a matcher is applied to a UOp graph.",
-    "heldout": "Where is tinygrad's symbolic simplification ruleset defined and how is it invoked during compilation?"
+    "seed": "How does the PatternMatcher work: what goes into defining a UPat rewrite rule, and what happens when a matcher is run over a UOp graph?",
+    "heldout": "Where does tinygrad keep its symbolic simplification rules, and at what point during compilation do they get applied?"
   },
   {
     "pair": "scheduler",
     "subsystem": "Scheduler (tinygrad/schedule/)",
-    "seed": "How does tinygrad turn a Tensor computation graph into a schedule of kernels? What does rangeify do?",
-    "heldout": "How does the tinygrad scheduler decide kernel fusion boundaries, and what conditions force two ops into separate kernels?"
+    "seed": "How does a Tensor computation graph become a schedule of kernels? What is rangeify doing in that pipeline?",
+    "heldout": "What makes the scheduler put two ops in separate kernels instead of fusing them: which conditions force a fusion boundary?"
   },
   {
     "pair": "shapetracker",
     "subsystem": "ShapeTracker / movement (tinygrad/uop/movement.py)",
-    "seed": "How does tinygrad's ShapeTracker represent a tensor view? Explain View, strides, offset, and mask.",
-    "heldout": "How does tinygrad merge consecutive movement ops (e.g. a reshape after a permute) into a single view without copying data?"
+    "seed": "How does a ShapeTracker describe a tensor view? Walk through what a View holds, strides, offset, mask, and how that avoids materializing data.",
+    "heldout": "When you reshape after a permute, how does tinygrad collapse those consecutive movement ops into one view without copying anything?"
   },
   {
     "pair": "renderer",
     "subsystem": "Codegen renderer (tinygrad/renderer/cstyle.py)",
-    "seed": "How does the CStyle renderer turn a UOp kernel into C/CUDA source code?",
-    "heldout": "What methods must a new Renderer subclass implement to add a backend, and how does the renderer map UOp ops to output syntax?"
+    "seed": "How does the CStyle renderer take a UOp kernel and produce C or CUDA source from it?",
+    "heldout": "Say I want to add a new backend: which methods does my Renderer subclass have to implement, and how do UOp ops get mapped to the output syntax?"
   },
   {
     "pair": "realize",
     "subsystem": "Engine realize (tinygrad/engine/realize.py)",
-    "seed": "What happens in engine/realize.py when a schedule is executed? Explain ExecItem and the Runner types.",
-    "heldout": "How does kernel search/optimization (BEAM) plug into the realize path?"
+    "seed": "What happens when a schedule gets executed in engine/realize.py? What is an ExecItem and what do the different Runner types do?",
+    "heldout": "Where does BEAM kernel search hook into the realize path, and what does it optimize?"
   },
   {
     "pair": "jit",
     "subsystem": "TinyJit (tinygrad/engine/jit.py)",
-    "seed": "How does TinyJit capture and replay a kernel graph across calls?",
-    "heldout": "How does TinyJit handle changing input shapes or values, and when does a captured graph get invalidated or reused?"
+    "seed": "How does TinyJit capture a kernel graph on the first calls and replay it afterwards?",
+    "heldout": "What does TinyJit do when input shapes or values change between calls, when does a captured graph get reused and when is it invalidated?"
   },
   {
     "pair": "autograd",
     "subsystem": "Autograd (tinygrad/function.py, tensor.py)",
-    "seed": "How is autograd implemented in tinygrad? How does a Function register its backward/gradient?",
-    "heldout": "How does Tensor.backward walk the computation graph and accumulate gradients into leaf tensors?"
+    "seed": "How does tinygrad implement autograd? Where does a Function's backward/gradient get registered?",
+    "heldout": "How does Tensor.backward traverse the computation graph, and how do gradients end up accumulated on the leaf tensors?"
   },
   {
     "pair": "dtype",
     "subsystem": "dtype (tinygrad/dtype.py)",
-    "seed": "How are dtypes represented in tinygrad and how is type promotion between operands decided?",
-    "heldout": "How does tinygrad handle bfloat16 and image dtypes when rendering kernels?"
+    "seed": "How are dtypes modeled in tinygrad, and what decides the promoted type when two operands disagree?",
+    "heldout": "What special handling do bfloat16 and the image dtypes need when kernels get rendered?"
   },
   {
     "pair": "device-runtime",
     "subsystem": "Device / runtime (tinygrad/device.py, runtime/)",
-    "seed": "How is a Device abstracted in tinygrad? What must an ops_*.py runtime provide (Allocator, Program, Compiler)?",
-    "heldout": "How does the HCQ (hardware command queue) graph runtime batch multiple kernel launches into one submission?"
+    "seed": "How is a Device abstracted, and what does an ops_*.py runtime have to provide: what are the Allocator, Program, and Compiler responsible for?",
+    "heldout": "How does the HCQ graph runtime batch several kernel launches into a single hardware submission?"
   }
 ]
