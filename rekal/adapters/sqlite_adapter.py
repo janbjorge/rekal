@@ -74,6 +74,14 @@ async def memories_columns(db: aiosqlite.Connection) -> set[str]:
     return cols
 
 
+async def has_memory_links(db: aiosqlite.Connection) -> bool:
+    """Whether the legacy memory_links table exists in this DB."""
+    async with db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_links'"
+    ) as cursor:
+        return await cursor.fetchone() is not None
+
+
 async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
     """Rebuild a pre-minimal DB into the minimal schema, preserving content.
 
@@ -93,13 +101,6 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
     if "memory_type" not in cols:
         return  # fresh DB or already minimal
 
-    # Every rekal-created DB has memory_links (it shipped in the initial
-    # SCHEMA), but a hand-built old-shape DB without it would otherwise
-    # crash the superseded-row exclusion below. Created empty if missing;
-    # dropped again at the end of this migration either way.
-    await db.execute(
-        "CREATE TABLE IF NOT EXISTS memory_links (from_id TEXT, to_id TEXT, relation TEXT)"
-    )
     await db.execute(
         """
         CREATE TABLE memories_minimal (
@@ -112,6 +113,8 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
         )
         """
     )
+    # Copy first, exclude after: each legacy feature is handled by its own
+    # conditional instead of one query that assumes every table exists.
     if "tier" in cols:
         await db.execute(
             """
@@ -119,7 +122,6 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
             SELECT id, content, project, tags, created_at, updated_at
             FROM memories
             WHERE tier = 'durable'
-              AND id NOT IN (SELECT to_id FROM memory_links WHERE relation = 'supersedes')
             """
         )
     else:
@@ -129,7 +131,15 @@ async def migrate_to_minimal(db: aiosqlite.Connection) -> None:
             INSERT INTO memories_minimal (id, content, project, tags, created_at, updated_at)
             SELECT id, content, project, tags, created_at, updated_at
             FROM memories
-            WHERE id NOT IN (SELECT to_id FROM memory_links WHERE relation = 'supersedes')
+            """
+        )
+    if await has_memory_links(db):
+        # No links table means nothing was ever superseded.
+        await db.execute(
+            """
+            DELETE FROM memories_minimal WHERE id IN (
+                SELECT to_id FROM memory_links WHERE relation = 'supersedes'
+            )
             """
         )
 
