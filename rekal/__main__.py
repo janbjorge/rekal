@@ -8,7 +8,6 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal
 
@@ -20,20 +19,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from rekal.adapters.sqlite_adapter import SqliteDatabase
-    from rekal.models import MemoryResult, MemoryType
+    from rekal.models import MemoryResult
 
 RecallFormat = Literal["text", "json"]
-
-
-class MemoryTypeChoice(StrEnum):
-    """Prune's --memory-type choices; .value is a valid ``MemoryType`` literal."""
-
-    fact = "fact"
-    preference = "preference"
-    procedure = "procedure"
-    context = "context"
-    episode = "episode"
-
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="rekal memory MCP server")
 hook_app = typer.Typer(help="Claude Code hook handlers (read hook JSON on stdin).")
@@ -91,7 +79,7 @@ def render_recall(memories: list[MemoryResult], *, project: str | None, fmt: Rec
         return ""
     scope = f" (project: {project})" if project else ""
     lines = [f"## rekal memory{scope}"]
-    lines.extend(f"- [{m.memory_type}] {m.content} (id {m.id})" for m in memories)
+    lines.extend(f"- {m.content} (id {m.id})" for m in memories)
     return "\n".join(lines)
 
 
@@ -106,22 +94,18 @@ async def recall_memories(
     from rekal.adapters.sqlite_adapter import SqliteDatabase
     from rekal.config import find_config_file, load_file_config
     from rekal.embeddings import FastEmbedder
+    from rekal.scoring import resolve_weights
 
     async with SqliteDatabase.session(db_path, FastEmbedder()) as db:
         if query:
-            # Query path embeds the query and runs the durable-tier hybrid
-            # search directly; build_context would also compute scratch,
-            # conflicts, and a timeline summary that injection discards.
+            # Query path embeds the query and runs hybrid search directly.
             # The relevance floor keeps injection from carrying low-signal
             # hits into every prompt.
-            weights = await db.resolve_weights(
-                project, file_config=load_file_config(find_config_file())
-            )
+            weights = resolve_weights(load_file_config(find_config_file()))
             return await db.search(
                 query,
                 limit=limit,
                 project=project,
-                tier="durable",
                 weights=weights,
                 min_score=0.25,
             )
@@ -147,7 +131,6 @@ async def run_prune(
     db_path: str,
     *,
     project: str | None,
-    memory_type: MemoryType | None,
     older_than_days: int | None,
     before: str | None,
     yes: bool,
@@ -164,25 +147,15 @@ async def run_prune(
             "%Y-%m-%d %H:%M:%S"
         )
 
-    if project is None and memory_type is None and cutoff is None:
-        print(
-            "Refusing to prune without a filter. "
-            "Use --project, --memory-type, --older-than-days, or --before."
-        )
+    if project is None and cutoff is None:
+        print("Refusing to prune without a filter. Use --project, --older-than-days, or --before.")
         sys.exit(2)
 
     async with open_db(db_path) as db:
-        count, _ = await db.prune(
-            project=project,
-            memory_type=memory_type,
-            before=cutoff,
-            dry_run=True,
-        )
+        count, _ = await db.prune(project=project, before=cutoff, dry_run=True)
         scope_parts = []
         if project is not None:
             scope_parts.append(f"project={project}")
-        if memory_type is not None:
-            scope_parts.append(f"type={memory_type}")
         if cutoff is not None:
             scope_parts.append(f"before={cutoff}")
         scope = ", ".join(scope_parts)
@@ -195,12 +168,7 @@ async def run_prune(
         if count == 0:
             return
 
-        deleted_count, _ = await db.prune(
-            project=project,
-            memory_type=memory_type,
-            before=cutoff,
-            dry_run=False,
-        )
+        deleted_count, _ = await db.prune(project=project, before=cutoff, dry_run=False)
         print(f"Deleted {deleted_count} memories.")
 
 
@@ -250,13 +218,10 @@ def recall(
     )
 
 
-@app.command(help="Bulk-delete memories by scope (project/type/age)")
+@app.command(help="Bulk-delete memories by scope (project/age)")
 def prune(
     ctx: typer.Context,
     project: Annotated[str | None, typer.Option(help="Restrict to this project")] = None,
-    memory_type: Annotated[
-        MemoryTypeChoice | None, typer.Option(help="Restrict to this memory type")
-    ] = None,
     older_than_days: Annotated[
         int | None, typer.Option(help="Match memories created more than N days ago")
     ] = None,
@@ -272,7 +237,6 @@ def prune(
         run_prune(
             get_db_path(ctx.obj),
             project=project,
-            memory_type=memory_type.value if memory_type else None,
             older_than_days=older_than_days,
             before=before,
             yes=yes,

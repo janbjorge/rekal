@@ -6,13 +6,11 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
-from typing import get_args
 from unittest.mock import patch
 
 import pytest
 
 from rekal.__main__ import (
-    MemoryTypeChoice,
     main,
     run_export,
     run_health,
@@ -20,7 +18,6 @@ from rekal.__main__ import (
     run_recall,
 )
 from rekal.adapters.sqlite_adapter import SqliteDatabase
-from rekal.models import MemoryType
 
 from .conftest import deterministic_embed
 
@@ -28,12 +25,6 @@ from .conftest import deterministic_embed
 # rekal.embeddings); swap it for the deterministic test embedder so the query
 # path never loads (or downloads) the real ONNX model.
 patch_embedder = patch("rekal.embeddings.FastEmbedder", lambda: deterministic_embed)
-
-
-def test_memory_type_choice_matches_literal() -> None:
-    # MemoryTypeChoice is hand-listed (kept stdlib-only so the hook CLI path
-    # never imports pydantic). Guard against it drifting from the source Literal.
-    assert {c.value for c in MemoryTypeChoice} == set(get_args(MemoryType))
 
 
 async def test_run_health(capsys: pytest.CaptureFixture[str]) -> None:
@@ -91,13 +82,13 @@ async def test_run_recall_timeline_text(capsys: pytest.CaptureFixture[str]) -> N
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "test.db")
         db = await SqliteDatabase.create(db_path, deterministic_embed)
-        await db.store("A durable fact", memory_type="fact")
+        await db.store("A durable fact")
         await db.close()
 
         await run_recall(db_path, project=None, query=None, limit=10, fmt="text")
         out = capsys.readouterr().out
         assert out.startswith("## rekal memory\n")
-        assert "- [fact] A durable fact (id " in out
+        assert "- A durable fact (id " in out
 
 
 async def test_run_recall_query(capsys: pytest.CaptureFixture[str]) -> None:
@@ -225,7 +216,6 @@ async def test_run_prune_no_db() -> None:
         await run_prune(
             "/nonexistent/path/db.sqlite",
             project="x",
-            memory_type=None,
             older_than_days=None,
             before=None,
             yes=True,
@@ -242,7 +232,6 @@ async def test_run_prune_requires_filter(capsys: pytest.CaptureFixture[str]) -> 
             await run_prune(
                 db_path,
                 project=None,
-                memory_type=None,
                 older_than_days=None,
                 before=None,
                 yes=False,
@@ -261,7 +250,6 @@ async def test_run_prune_dry_run(capsys: pytest.CaptureFixture[str]) -> None:
         await run_prune(
             db_path,
             project="trash",
-            memory_type=None,
             older_than_days=None,
             before=None,
             yes=False,
@@ -288,7 +276,6 @@ async def test_run_prune_executes(capsys: pytest.CaptureFixture[str]) -> None:
         await run_prune(
             db_path,
             project="trash",
-            memory_type=None,
             older_than_days=7,
             before=None,
             yes=True,
@@ -315,7 +302,6 @@ async def test_run_prune_executes_with_only_project(capsys: pytest.CaptureFixtur
         await run_prune(
             db_path,
             project="trash",
-            memory_type=None,
             older_than_days=None,
             before=None,
             yes=True,
@@ -330,26 +316,6 @@ async def test_run_prune_executes_with_only_project(capsys: pytest.CaptureFixtur
             await db.close()
 
 
-async def test_run_prune_by_memory_type(capsys: pytest.CaptureFixture[str]) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = str(Path(tmp) / "test.db")
-        db = await SqliteDatabase.create(db_path, deterministic_embed)
-        await db.store("A fact", memory_type="fact")
-        await db.close()
-
-        await run_prune(
-            db_path,
-            project=None,
-            memory_type="fact",
-            older_than_days=None,
-            before=None,
-            yes=True,
-        )
-        captured = capsys.readouterr()
-        assert "type=fact" in captured.out
-        assert "Deleted 1" in captured.out
-
-
 async def test_run_prune_no_matches(capsys: pytest.CaptureFixture[str]) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "test.db")
@@ -359,7 +325,6 @@ async def test_run_prune_no_matches(capsys: pytest.CaptureFixture[str]) -> None:
         await run_prune(
             db_path,
             project="ghost",
-            memory_type=None,
             older_than_days=None,
             before=None,
             yes=True,
