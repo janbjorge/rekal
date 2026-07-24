@@ -7,7 +7,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from rekal.adapters.mcp_adapter import mcp, resolve_project
-from rekal.models import MemoryTier, MemoryType
+from rekal.models import CompactMemory, MemoryTier, MemoryType
 from rekal.scoring import ScoringWeights
 
 
@@ -132,7 +132,11 @@ async def memory_search(
         float | None,
         Field(description="Recency half-life in days. Default: project config or 30.0"),
     ] = None,
-) -> list[dict[str, str | int | float | list[str] | None]]:
+    min_score: Annotated[
+        float,
+        Field(description="Drop results scoring below this relevance floor (0.0-1.0)."),
+    ] = 0.25,
+) -> list[CompactMemory]:
     """Search memories using hybrid FTS + vector + recency scoring."""
     db = ctx.request_context.lifespan_context.db
     resolved_project = resolve_project(ctx, project)
@@ -153,8 +157,9 @@ async def memory_search(
         tier=tier,
         conversation_id=conversation_id,
         weights=weights,
+        min_score=min_score,
     )
-    return [r.model_dump() for r in results]
+    return [r.compact() for r in results]
 
 
 @mcp.tool()

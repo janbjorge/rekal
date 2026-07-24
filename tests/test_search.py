@@ -114,6 +114,35 @@ async def test_search_uses_project_config(db: SqliteDatabase) -> None:
     assert r_config[0].score != r_default[0].score
 
 
+async def test_search_min_score_excludes_low_scores(db: SqliteDatabase) -> None:
+    await db.store("Relevance floor memory about compilers")
+    # Every component normalizes to [0,1] and fts sigmoid stays below 1, so a
+    # floor of 1.0 excludes everything while 0.0 keeps all candidates.
+    all_hits = await db.search("compilers", weights=ScoringWeights(), min_score=0.0)
+    no_hits = await db.search("compilers", weights=ScoringWeights(), min_score=1.0)
+    assert len(all_hits) > 0
+    assert no_hits == []
+
+
+async def test_search_min_score_boundary_inclusive(db: SqliteDatabase) -> None:
+    await db.store("Boundary floor memory about linkers")
+    hits = await db.search("linkers", weights=ScoringWeights(), min_score=0.0)
+    assert len(hits) > 0
+    score = hits[0].score
+    assert score is not None
+    # A result scoring exactly min_score survives (strict < comparison).
+    again = await db.search("linkers", weights=ScoringWeights(), min_score=score)
+    assert [r.id for r in again] == [r.id for r in hits]
+
+
+async def test_build_context_min_score(db: SqliteDatabase) -> None:
+    await db.store("Context floor memory about parsers")
+    kept = await db.build_context("parsers", weights=ScoringWeights(), min_score=0.0)
+    dropped = await db.build_context("parsers", weights=ScoringWeights(), min_score=1.0)
+    assert len(kept.memories) > 0
+    assert dropped.memories == []
+
+
 async def test_search_per_call_overrides_project_config(db: SqliteDatabase) -> None:
     await db.set_config("proj", "w_fts", "0.8")
     await db.store("Override test memory", project="proj")
