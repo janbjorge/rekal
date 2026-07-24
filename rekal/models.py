@@ -11,6 +11,12 @@ MemoryTier = Literal["durable", "scratch"]
 ConversationRelation = Literal["follows_up_on", "branches_from", "contradicts", "merges"]
 MemoryRelation = Literal["supersedes", "contradicts", "related_to"]
 
+# Token-lean projections returned by the MCP tools: bookkeeping fields
+# (tier, timestamps beyond created_at, access counters) are dropped and
+# absent values are omitted instead of serialized as null.
+CompactMemory = dict[str, str | float | list[str]]
+CompactContext = dict[str, str | list[CompactMemory] | list[dict[str, str]]]
+
 
 class MemoryResult(BaseModel):
     id: str
@@ -26,6 +32,22 @@ class MemoryResult(BaseModel):
     access_count: int = 0
     last_accessed_at: str | None = None
     score: float | None = None
+
+    def compact(self) -> CompactMemory:
+        out: CompactMemory = {
+            "id": self.id,
+            "content": self.content,
+            "memory_type": self.memory_type,
+        }
+        if self.project:
+            out["project"] = self.project
+        if self.tags:
+            out["tags"] = self.tags
+        if self.created_at:
+            out["created_at"] = self.created_at
+        if self.score is not None:
+            out["score"] = round(self.score, 3)
+        return out
 
 
 class TopicSummary(BaseModel):
@@ -75,6 +97,18 @@ class ContextResult(BaseModel):
     scratch: list[MemoryResult] = Field(default_factory=list)
     conflicts: list[ConflictInfo]
     timeline_summary: str
+
+    def compact(self) -> CompactContext:
+        out: CompactContext = {
+            "query": self.query,
+            "memories": [m.compact() for m in self.memories],
+            "timeline_summary": self.timeline_summary,
+        }
+        if self.scratch:
+            out["scratch"] = [m.compact() for m in self.scratch]
+        if self.conflicts:
+            out["conflicts"] = [c.model_dump() for c in self.conflicts]
+        return out
 
 
 class StaleConversation(BaseModel):

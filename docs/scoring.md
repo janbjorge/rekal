@@ -237,6 +237,10 @@ repo. Use per-call `w_*` args only to experiment with a single query.
   similarity.
 - **Over-fetch is not a floor.** `k = limit × 3` mitigates post-filter
   shrinkage but doesn't guarantee `limit` results under heavy filtering.
+- **Relevance floor.** `search` takes `min_score` (default 0.0 at the DB
+  layer); results scoring below it are dropped before the limit cut. The
+  MCP tools and hook injection default to `min_score=0.25` so weak hits
+  don't ride along into context. Pass `min_score=0.0` to see everything.
 - **Superseded rows never appear.** Both lookups exclude
   `to_id`s of `supersedes` links at the SQL layer, before scoring.
 - **All FTS tokens must match.** `quote_fts` AND-s tokens; the vector

@@ -6,7 +6,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from rekal.adapters.mcp_adapter import mcp, resolve_project
-from rekal.models import MemoryRelation, MemoryType
+from rekal.models import CompactContext, MemoryRelation, MemoryType
 
 
 @mcp.tool()
@@ -98,7 +98,11 @@ async def memory_build_context(
         float | None,
         Field(description="Recency half-life in days. Default: project config or 30.0"),
     ] = None,
-) -> dict[str, str | list[dict[str, str | int | float | list[str] | None]]]:
+    min_score: Annotated[
+        float,
+        Field(description="Drop results scoring below this relevance floor (0.0-1.0)."),
+    ] = 0.25,
+) -> CompactContext:
     """Build rich context for a query with per-tier budgets.
 
     Returns ``memories`` (durable tier, top ``limit``) and ``scratch``
@@ -122,5 +126,6 @@ async def memory_build_context(
         limit=limit,
         scratch_limit=scratch_limit,
         weights=weights,
+        min_score=min_score,
     )
-    return result.model_dump()
+    return result.compact()

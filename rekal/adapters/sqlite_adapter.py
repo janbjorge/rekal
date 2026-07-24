@@ -412,6 +412,7 @@ class SqliteDatabase:
         tier: MemoryTier | None = None,
         conversation_id: str | None = None,
         weights: ScoringWeights,
+        min_score: float = 0.0,
     ) -> list[MemoryResult]:
         embedding = self.embed(query)
 
@@ -464,11 +465,11 @@ class SqliteDatabase:
                 continue
             if mem.project != project:
                 continue
-            if memory_type is not None and mem.memory_type != memory_type:
-                continue
-            if tier is not None and mem.tier != tier:
-                continue
-            if conversation_id is not None and mem.conversation_id != conversation_id:
+            if (
+                (memory_type is not None and mem.memory_type != memory_type)
+                or (tier is not None and mem.tier != tier)
+                or (conversation_id is not None and mem.conversation_id != conversation_id)
+            ):
                 continue
 
             days = parse_days_since(mem.created_at, fallback=0)
@@ -478,6 +479,8 @@ class SqliteDatabase:
                 recency_days=max(0.0, float(days)),
             )
             score = combine_scores(raw, weights)
+            if score < min_score:
+                continue
             mem.score = score
             scored.append((score, mem))
 
@@ -955,6 +958,7 @@ class SqliteDatabase:
         limit: int = 10,
         scratch_limit: int = 5,
         weights: ScoringWeights,
+        min_score: float = 0.0,
     ) -> ContextResult:
         """Build context with per-tier budgets so scratch ⊥ durable.
 
@@ -963,7 +967,12 @@ class SqliteDatabase:
         durable hit cannot crowd out fresh scratch context (and vice versa).
         """
         memories = await self.search(
-            query, limit=limit, project=project, tier="durable", weights=weights
+            query,
+            limit=limit,
+            project=project,
+            tier="durable",
+            weights=weights,
+            min_score=min_score,
         )
         scratch = (
             await self.search(
@@ -972,6 +981,7 @@ class SqliteDatabase:
                 project=project,
                 tier="scratch",
                 weights=weights,
+                min_score=min_score,
             )
             if scratch_limit > 0
             else []

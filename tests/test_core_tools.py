@@ -76,6 +76,37 @@ async def test_memory_search_tool_custom_weights(db: SqliteDatabase) -> None:
     assert len(results) > 0
 
 
+async def test_memory_search_tool_compact_shape(db: SqliteDatabase) -> None:
+    await memory_store(_ctx(db), "Compact shape content about Elixir", "fact", "proj", tags=["ex"])
+    results = await memory_search(_ctx(db), "Elixir", project="proj")
+    assert len(results) > 0
+    mem = results[0]
+    assert mem["content"] == "Compact shape content about Elixir"
+    assert mem["memory_type"] == "fact"
+    assert mem["project"] == "proj"
+    assert mem["tags"] == ["ex"]
+    assert isinstance(mem["score"], float)
+    # Bookkeeping fields are dropped from tool output.
+    for absent in ("access_count", "last_accessed_at", "updated_at", "tier", "expires_at"):
+        assert absent not in mem
+
+
+async def test_memory_search_tool_compact_omits_unset(db: SqliteDatabase) -> None:
+    await memory_store(_ctx(db), "Global untagged note about Nim")
+    results = await memory_search(_ctx(db), "Nim")
+    assert len(results) > 0
+    assert "project" not in results[0]
+    assert "tags" not in results[0]
+
+
+async def test_memory_search_tool_min_score_filters(db: SqliteDatabase) -> None:
+    await memory_store(_ctx(db), "Score floor content about Haskell")
+    everything = await memory_search(_ctx(db), "Haskell", min_score=0.0)
+    nothing = await memory_search(_ctx(db), "Haskell", min_score=1.0)
+    assert len(everything) > 0
+    assert nothing == []
+
+
 async def test_memory_set_project_tool(db: SqliteDatabase) -> None:
     ctx = _ctx(db)
     assert ctx.request_context.lifespan_context.default_project is None
@@ -172,10 +203,9 @@ async def test_memory_search_filters_by_tier(db: SqliteDatabase) -> None:
     durable_only = await memory_search(_ctx(db), "Java", tier="durable")
     scratch_only = await memory_search(_ctx(db), "Java", tier="scratch")
 
-    assert all(m["tier"] == "durable" for m in durable_only)
-    assert all(m["tier"] == "scratch" for m in scratch_only)
-    assert len(durable_only) >= 1
-    assert len(scratch_only) >= 1
+    # Compact output drops the tier field; identify results by content.
+    assert {m["content"] for m in durable_only} == {"durable Java note"}
+    assert {m["content"] for m in scratch_only} == {"scratch Java note"}
 
 
 async def test_memory_store_scratch_tool(db: SqliteDatabase) -> None:

@@ -112,11 +112,18 @@ async def recall_memories(
             # Query path embeds the query and runs the durable-tier hybrid
             # search directly; build_context would also compute scratch,
             # conflicts, and a timeline summary that injection discards.
+            # The relevance floor keeps injection from carrying low-signal
+            # hits into every prompt.
             weights = await db.resolve_weights(
                 project, file_config=load_file_config(find_config_file())
             )
             return await db.search(
-                query, limit=limit, project=project, tier="durable", weights=weights
+                query,
+                limit=limit,
+                project=project,
+                tier="durable",
+                weights=weights,
+                min_score=0.25,
             )
         # No query (session start): recency-ordered, no embedding load.
         return await db.memory_timeline(project=project, limit=limit)
