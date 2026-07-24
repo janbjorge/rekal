@@ -1,8 +1,8 @@
 # rekal scoring
 
 How recall (`memory_build_context`) ranks results. Keep this file in sync with
-`rekal/scoring.py` and the `search` / `resolve_weights` methods in
-`rekal/adapters/sqlite_adapter.py`.
+`rekal/scoring.py` (signals, weights, `resolve_weights`) and the `search`
+method in `rekal/adapters/sqlite_adapter.py`.
 
 > **Why this exists.** "Hybrid search" is three independent signals
 > squashed onto a common `[0, 1]` scale and summed with weights. Each
@@ -151,20 +151,21 @@ semantically through the vector lookup alone.
 
 ## Weight resolution
 
-`db.resolve_weights(project, *, file_config=…)` builds the
-`ScoringWeights` for a search. Precedence, highest first (the tool
-surface deliberately exposes no weight parameters; tuning is a config
-concern, not an agent decision):
+`resolve_weights(file_config)` (`scoring.py`) builds the `ScoringWeights`.
+The MCP server calls it once at startup and holds the result for the
+session; the tool surface deliberately exposes no weight parameters, since
+tuning is a config concern, not an agent decision. Precedence, highest
+first:
 
 | Priority | Layer | Source | Persists? |
 |---|---|---|---|
 | 1 | File config | `.rekal/config.yml` in the project | Yes, version-controlled and shared |
 | 2 | Hardcoded defaults | `ScoringWeights` field defaults | Always: 0.4 / 0.4 / 0.2 / 30.0 |
 
-Layers merge through a `ChainMap`; pydantic supplies the defaults for any
-key still missing and coerces YAML strings to floats. Resolution is
-**per-key independent**: `.rekal/config.yml` can set only `w_fts` and
-every other key takes the default.
+Pydantic validates the config values, coerces strings to floats, and
+fills defaults for any key the file leaves out. Resolution is **per-key
+independent**: `.rekal/config.yml` can set only `w_fts` and every other
+key takes the default.
 
 ### `.rekal/config.yml`
 
@@ -220,7 +221,7 @@ Set team-wide defaults in `.rekal/config.yml` (committed).
   MCP tools and hook injection default to `min_score=0.25` so weak hits
   don't ride along into context. Pass `min_score=0.0` to see everything.
 - **Replaced rows never appear.** `memory_store(replaces=<old_id>)`
-  deletes the old row outright — there is no superseded-but-lingering
+  deletes the old row outright; there is no superseded-but-lingering
   state.
 - **All FTS tokens must match.** `quote_fts` AND-s tokens; the vector
   lookup is what rescues loosely-worded queries.
@@ -229,9 +230,8 @@ Set team-wide defaults in `.rekal/config.yml` (committed).
 
 ## File map
 
-- Signal functions + weights: `rekal/scoring.py`
+- Signal functions + weights + `resolve_weights`: `rekal/scoring.py`
 - Retrieval / merge / scoring: `rekal/adapters/sqlite_adapter.py` → `search`
-- Weight resolution: `rekal/adapters/sqlite_adapter.py` → `resolve_weights`
-- File config loader: `rekal/adapters/mcp_adapter.py` → `load_file_config`, `find_config_file`
+- File config loader: `rekal/config.py` → `load_file_config`, `find_config_file`
 - FTS sanitizer: `rekal/adapters/sqlite_adapter.py` → `quote_fts`
 - Schema: [docs/data-model.md](data-model.md)

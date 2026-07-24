@@ -21,7 +21,7 @@ Session 47:  "Set up linting"            → memory_build_context("formatting pr
 2. **Index.** rekal writes it to SQLite and builds two indexes over it: a BM25 keyword index and a 384-dimensional vector embedding, both computed locally with no network calls.
 3. **Recall.** In a later session the agent calls `memory_build_context`. rekal blends keyword match, semantic similarity, and recency into a single score and returns the top hits above a relevance floor.
 
-All state is a single file: `~/.rekal/memory.db`. No daemon, no cloud, no API keys. For the scoring formula, schema, and embedding model, see [Under the hood](#under-the-hood).
+All state is a single file: `~/.rekal/memory.db`. For the scoring formula, schema, and embedding model, see [Under the hood](#under-the-hood).
 
 ## Quickstart (Claude Code)
 
@@ -112,7 +112,7 @@ claude plugin install rekal-skills@rekal
 <details>
 <summary><b>Recall hooks: environment scoping</b></summary>
 
-The recall hooks run `uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook <event>`, so they use the plugin's own rekal install (`uv` must be available) and recall runs in-process — no separate `rekal` on the PATH is required. Recall never blocks a session: a missing DB, load error, or empty result degrades to injecting the directive alone.
+The recall hooks run `uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook <event>`, so they use the plugin's own rekal install (`uv` must be available) and recall runs in-process, without needing a separate `rekal` on the PATH. Recall never blocks a session: a missing DB, load error, or empty result degrades to injecting the directive alone.
 
 - **Project and database scoping belong in your shell or settings env, not the MCP `env` block.** `REKAL_PROJECT` and `REKAL_DB_PATH` set under the MCP server's `env` apply only to the MCP server process. The recall hook is a separate subprocess and does not inherit them, so it would read the default database with no project scope while the MCP tools use your configured scope. Set these in your shell environment or in Claude Code `settings.json` `env` so both the server and the hooks see the same values.
 
@@ -228,9 +228,9 @@ Admin operations live in the CLI, not the tool surface:
 
 | Command | Purpose |
 |---------|---------|
-| `rekal health` | Database stats: counts by type, project, date range |
+| `rekal health` | Database stats: total, counts by project, date range |
 | `rekal export` | Dump all memories as JSON |
-| `rekal prune` | Bulk-delete by scope (project / type / age); dry-run by default |
+| `rekal prune` | Bulk-delete by scope (project / age); dry-run by default |
 | `rekal recall` | Print memories for a query (what the hooks inject) |
 
 ## Under the hood
@@ -246,15 +246,15 @@ Everything lives in `~/.rekal/memory.db`. Three tables share it:
 | `memory_vec` | sqlite-vec 384-dim embedding, 1:1 with `memories` (synced in Python, no trigger) |
 
 `memory_store(replaces=<old_id>)` stores the new memory and deletes the old
-one in a single operation: one topic, one memory, no stale versions
-lingering in search.
+one in a single operation, so a topic is only ever covered by one memory
+and stale versions never show up in search.
 
 The schema is deliberately minimal. Earlier versions carried conversation
 graphs, memory links, a scratch tier, memory types, and access counters;
 benchmarks showed the structure cost tokens (fatter payloads, fatter
 instructions) without earning them back. The full schema and the
 auto-migration from older databases live in
-[docs/data-model.md](docs/data-model.md) — existing DBs migrate in place
+[docs/data-model.md](docs/data-model.md). Existing DBs migrate in place
 on first open, keeping content and embeddings.
 
 ### Embeddings
@@ -300,11 +300,11 @@ Full ranking reference, covering normalization, candidate retrieval, weight reso
 
 ### Why SQLite?
 
-- **Single file**: copy, back up, version-control, or delete to start fresh
-- **Zero config**: no daemon, no port, no connection string
-- **FTS5 built-in**: BM25 ranking without an external search engine
-- **sqlite-vec extension**: vector search in the same process, no separate vector DB
-- **Sub-millisecond**: local disk I/O, no network round-trips
+- One file you can copy, back up, version-control, or delete to start fresh
+- Nothing to configure: no daemon, no port, no connection string
+- FTS5 gives BM25 ranking without an external search engine
+- sqlite-vec runs vector search in the same process, so there is no separate vector DB
+- Queries hit local disk and return in under a millisecond
 
 ## Troubleshooting for Claude Code
 
@@ -339,7 +339,7 @@ rekal export   # Export all memories as JSON
 rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
 ```
 
-`rekal prune` requires at least one filter: `--project NAME`, `--memory-type TYPE`, `--older-than-days N`, or `--before "YYYY-MM-DD HH:MM:SS"`. Without `--yes` it only reports the match count.
+`rekal prune` requires at least one filter: `--project NAME`, `--older-than-days N`, or `--before "YYYY-MM-DD HH:MM:SS"`. Without `--yes` it only reports the match count.
 
 ## Architecture (for contributors)
 

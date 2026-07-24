@@ -79,19 +79,21 @@ the pre-minimal shape by column (`memory_type` still present). It rebuilds
 Carried over:
 
 - durable, non-superseded rows (id, content, project, tags, timestamps)
-- their embeddings in `memory_vec` — no re-embed
+- their embeddings in `memory_vec`, without re-embedding anything
 
 Dropped, deliberately:
 
 - superseded rows: their exclusion lived in `memory_links`, which no
-  longer exists — carrying them would resurrect stale knowledge in search
+  longer exists, so carrying them would resurrect stale knowledge in search
 - scratch-tier rows: ephemeral by contract
 - `conversations`, `conversation_links`, `memory_links`, `project_config`
   tables, and the bookkeeping columns (`memory_type`, `tier`,
   `conversation_id`, `expires_at`, `access_count`, `last_accessed_at`)
 
-Pre-tier DBs (no `tier` column at all) migrate too: every row is treated
-as durable.
+The migration copies rows first and excludes after: each legacy feature
+sits behind its own conditional, so pre-tier DBs (no `tier` column) and
+DBs without a `memory_links` table migrate too. An interrupted run leaves
+the old data intact and retries cleanly on the next open.
 
 ## Query lifecycle (recall)
 
