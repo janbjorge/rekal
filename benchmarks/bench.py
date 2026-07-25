@@ -740,6 +740,10 @@ def run(
     resume: bool = typer.Option(
         False, help="skip (pair, role, arm, run) rows already in results/REPO.jsonl"
     ),
+    accept_regime: bool = typer.Option(
+        False,
+        help="resume across a bench.py/config change (rows from any regime accepted)",
+    ),
 ) -> None:
     """Run all questions across arms, N times each; append to results/REPO.jsonl."""
     ensure_repo(repo)
@@ -771,16 +775,23 @@ def run(
     # are refused — mixing regimes is what invalidated run #1.
     prior: dict[tuple[str, str, str, int], RunResult] = {}
     if resume and out.exists():
-        stale = 0
+        stale = accepted = 0
         for line in out.read_text().splitlines():
             r = json.loads(line)
             row_prov = r.get("prov", {})
             same_regime = all(row_prov.get(k) == prov[k] for k in ("bench_sha", "config_hash"))
             if not same_regime:
-                stale += 1
-                continue
+                # The guard exists to catch ACCIDENTAL stack mixing; a
+                # deliberate, behavior-neutral bench.py change should not
+                # hold hours of recorded runs hostage — --accept-regime
+                # overrides loudly instead of silently.
+                if not accept_regime:
+                    stale += 1
+                    continue
+                accepted += 1
             prior[(r["pair"], r["role"], r["arm"], r["run"])] = RunResult(**r)
-        print(f"resume: {len(prior)} recorded runs will be skipped ({stale} cross-regime ignored)")
+        note = f" ({accepted} cross-regime ACCEPTED)" if accepted else ""
+        print(f"resume: {len(prior)} recorded runs will be skipped ({stale} ignored){note}")
     done = 0
     with out.open("a") as f:
         # Group by (pair, role) so each group's arms can be compared the moment
@@ -1212,6 +1223,9 @@ def pipeline(
     roles: str = typer.Option(",".join(Role), help="comma list: seed,heldout"),
     pairs: str | None = typer.Option(None, help="comma list of pair names (default: all)"),
     resume: bool = typer.Option(False, help="resume run+judge from recorded rows"),
+    accept_regime: bool = typer.Option(
+        False, help="resume across a bench.py/config change (rows from any regime accepted)"
+    ),
     relearn: bool = typer.Option(False, help="rebuild the seed DB even if one exists"),
 ) -> None:
     """(learn if needed) -> run -> judge -> aggregate. The verdict is the exit code.
@@ -1230,7 +1244,7 @@ def pipeline(
             learn(repo)
         else:
             print(f"pipeline: reusing frozen seed DB ({count} memories); --relearn to rebuild")
-    run(repo, n=n, arms=arms, roles=roles, pairs=pairs, resume=resume)
+    run(repo, n=n, arms=arms, roles=roles, pairs=pairs, resume=resume, accept_regime=accept_regime)
     judge(repo, resume=resume)
     aggregate(repo)
 
