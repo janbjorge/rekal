@@ -184,6 +184,6 @@ benchmarks/                     # lives in the rekal repo
     settings.json               #   hookless base, all arms inherit
     hooks.json                  #   rekal recall hook, warm arms only
   dbs/                          # seed-<repo>.db (frozen)
-  runner/bench.py               # headless A/B runner + cost parser
+  bench.py               # headless A/B runner + cost parser
   results/                      # per-run jsonl, judged jsonl
 ```

@@ -13,27 +13,27 @@ question design, confounds). This file is how to run it.
 cd benchmarks
 
 # 1. clone pinned repos + build the config dir
-uv run runner/bench.py setup
+uv run bench.py setup
 
 # 2. authenticate the isolated config dir ONCE (see "Auth" below)
 CLAUDE_CONFIG_DIR="$PWD/config/warm" claude   # then /login, then quit
 
 # 3. build each repo's frozen seed DB (the one pass that WRITES memory)
-uv run runner/bench.py learn tinygrad
+uv run bench.py learn tinygrad
 
 # 4. run the 3-arm matrix (cold / warm-empty / warm-seed), N=3 each
-uv run runner/bench.py run tinygrad
+uv run bench.py run tinygrad
 
 # 5. grade every answer 0-2 against the real source (quality parity)
-uv run runner/bench.py judge tinygrad
+uv run bench.py judge tinygrad
 
 # 6. print median tokens + overhead/benefit/net decomposition
-uv run runner/bench.py aggregate tinygrad
+uv run bench.py aggregate tinygrad
 ```
 
 Repeat steps 3-6 per repo: `tinygrad`, `pytorch`, `fastapi`, `pydantic`.
 
-Bare `uv run runner/bench.py` prints help. The script is a standalone
+Bare `uv run bench.py` prints help. The script is a standalone
 [PEP 723](https://peps.python.org/pep-0723/) `uv` script: `uv` fetches its
 deps (typer) on first run, so there's no venv to manage.
 

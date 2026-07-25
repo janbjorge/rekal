@@ -47,7 +47,7 @@ import typer
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 
-BENCH = Path(__file__).resolve().parent.parent
+BENCH = Path(__file__).resolve().parent
 REPOS = BENCH / "repos"
 QUESTIONS = BENCH / "questions"
 DBS = BENCH / "dbs"
