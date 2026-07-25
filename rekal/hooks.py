@@ -51,6 +51,20 @@ PROMPT_SUBMIT_DIRECTIVE = (
 # nudge. Empty directive + no recall = empty payload = zero bytes injected.
 PROMPT_SUBMIT_DIRECTIVE_READONLY = ""
 
+
+def directive(event: str, *, readonly: bool) -> str:
+    """The directive text for a hook event — variant selection lives with the
+    variants, so a new directive-bearing event can't fork the readonly branch
+    somewhere else."""
+    variants = {
+        ("SessionStart", False): SESSION_START_DIRECTIVE,
+        ("SessionStart", True): SESSION_START_DIRECTIVE_READONLY,
+        ("UserPromptSubmit", False): PROMPT_SUBMIT_DIRECTIVE,
+        ("UserPromptSubmit", True): PROMPT_SUBMIT_DIRECTIVE_READONLY,
+    }
+    return variants[(event, readonly)]
+
+
 # Reasons handed to the model when a flat-file memory read/write is denied. The
 # reason (not a dead end) is what redirects the model to rekal.
 BLOCK_WRITE_REASON = (

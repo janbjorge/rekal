@@ -35,6 +35,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
@@ -42,6 +43,7 @@ from itertools import product
 from os import environ
 from pathlib import Path
 from shutil import which
+from typing import TypeVar
 
 import typer
 
@@ -365,23 +367,32 @@ class RunResult:
 
     @property
     def weighted_tokens(self) -> float:
-        # Cache reads are priced at ~10% of fresh input; counting them 1:1
-        # made warm arms look 2x worse than their bill. Cost is the headline;
-        # this is the token-shaped view of the same truth.
-        return self.input_tokens + self.output_tokens + self.cache_creation + 0.1 * self.cache_read
+        return weighted_tokens(
+            self.input_tokens, self.output_tokens, self.cache_creation, self.cache_read
+        )
 
     @property
     def reads(self) -> int:
-        """Exploration tool calls — the count memory is supposed to displace."""
-        return sum(
-            c
-            for n, c in self.tool_calls.items()
-            if n in ("Read", "Grep", "Glob") or n.startswith("Bash")
-        )
+        return explore_reads(self.tool_calls)
 
     @property
     def rekal_calls(self) -> int:
         return sum(c for n, c in self.tool_calls.items() if n.startswith("mcp__rekal__"))
+
+
+def weighted_tokens(inp: int, out: int, cache_creation: int, cache_read: int) -> float:
+    """Cache reads are priced at ~10% of fresh input; counting them 1:1 made
+    warm arms look 2x worse than their bill. Cost is the headline; this is
+    the token-shaped view of the same truth. Single definition — the live
+    rollup and the final aggregate must never disagree on the weighting."""
+    return inp + out + cache_creation + 0.1 * cache_read
+
+
+def explore_reads(tool_calls: dict[str, int]) -> int:
+    """Exploration tool calls — the count memory is supposed to displace."""
+    return sum(
+        c for n, c in tool_calls.items() if n in ("Read", "Grep", "Glob") or n.startswith("Bash")
+    )
 
 
 def build_cmd(
@@ -503,6 +514,27 @@ def _pulse(name: str, detail: str, root: Path) -> str:
 # 30 runs into a 180-run matrix must not abort the whole thing.
 RETRIES = 3
 
+T = TypeVar("T")
+
+
+def with_retries(attempt: Callable[[], tuple[T, str | None]], what: str) -> T:
+    """Run `attempt` up to RETRIES times with linear backoff; exit on exhaustion.
+
+    `attempt` returns (value, failure): failure None means success. One
+    definition of the retry/backoff/give-up policy for every flaky external
+    call (headless claude runs, the grader) so tuning it happens in one place.
+    """
+    fail: str | None = ""
+    for i in range(1, RETRIES + 1):
+        value, fail = attempt()
+        if fail is None:
+            return value
+        if i < RETRIES:
+            wait = 30 * i
+            print(f"      ! {what} ({fail}); retrying in {wait}s", flush=True)
+            time.sleep(wait)
+    sys.exit(f"{what} {RETRIES}x -- {fail}")
+
 
 def run_claude(
     argv: list[str], cwd: Path, env: dict[str, str], rr: RunResult, *, live: bool = True
@@ -514,15 +546,10 @@ def run_claude(
     limit. Such runs are retried with backoff; only RETRIES consecutive
     failures abort the matrix, so one flaky API call can't kill a long run.
     """
-    fail = ""
-    for attempt in range(1, RETRIES + 1):
-        if (fail := run_claude_once(argv, cwd, env, rr, live=live)) is None:
-            return
-        if attempt < RETRIES:
-            wait = 30 * attempt
-            print(f"      ! claude run failed ({fail}); retrying in {wait}s", flush=True)
-            time.sleep(wait)
-    sys.exit(f"claude run failed {RETRIES}x -- {fail}")
+    with_retries(
+        lambda: (None, run_claude_once(argv, cwd, env, rr, live=live)),
+        "claude run failed",
+    )
 
 
 def run_claude_once(
@@ -719,7 +746,7 @@ def preflight_injection(repo: str, question: str) -> None:
     print("injection preflight OK -- hook returns a '## rekal memory' block")
 
 
-def load_questions(repo: str, pairs: str | None) -> list[dict]:
+def load_questions(repo: str, pairs: str | None = None) -> list[dict]:
     qs = json.loads((QUESTIONS / f"{repo}.json").read_text())
     if not pairs:
         return qs
@@ -728,6 +755,16 @@ def load_questions(repo: str, pairs: str | None) -> list[dict]:
     if bad := wanted - known:
         sys.exit(f"unknown pairs: {', '.join(sorted(bad))}; known: {', '.join(sorted(known))}")
     return [q for q in qs if q["pair"] in wanted]
+
+
+def load_jsonl(path: Path) -> list[dict]:
+    """Rows of a results/*.jsonl file."""
+    return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+
+
+def arms_need_seed(arm_list: list[str]) -> bool:
+    """Whether any requested arm reads the frozen seed DB."""
+    return Arm.WARM_SEED in arm_list or Arm.WARM_TOOL in arm_list
 
 
 @app.command()
@@ -750,8 +787,7 @@ def run(
     arm_list = _split_valid(arms, Arm, "arm")
     role_list = _split_valid(roles, Role, "role")
     qs = load_questions(repo, pairs)
-    needs_seed = Arm.WARM_SEED in arm_list or Arm.WARM_TOOL in arm_list
-    if needs_seed:
+    if arms_need_seed(arm_list):
         check_seed(repo)
         prov |= {"seed_sha": file_sha(seed_db(repo)), "seed_mems": str(mem_count(seed_db(repo)))}
         preflight_injection(repo, qs[0]["seed"])
@@ -772,8 +808,7 @@ def run(
     prior: dict[tuple[str, str, str, int], RunResult] = {}
     if resume and out.exists():
         stale = 0
-        for line in out.read_text().splitlines():
-            r = json.loads(line)
+        for r in load_jsonl(out):
             row_prov = r.get("prov", {})
             same_regime = all(row_prov.get(k) == prov[k] for k in ("bench_sha", "config_hash"))
             if not same_regime:
@@ -867,7 +902,7 @@ def learn(repo: str) -> None:
         seed.chmod(0o644)
         seed.unlink()
     write_warm_config()
-    qs = json.loads((QUESTIONS / f"{repo}.json").read_text())
+    qs = load_questions(repo)
     for q in qs:
         # warm-seed shape targets this repo's seed DB; store=True exposes the
         # write tool (measured runs don't get it) and the prompt turns it on.
@@ -946,8 +981,8 @@ def judge_one(repo: str, prompt: str) -> tuple[int, str]:
         "Read,Grep,Glob",
     ]
     env = environ | {"CLAUDE_CONFIG_DIR": str(WARM_CFG)}
-    fail = "unparseable"
-    for attempt in range(1, RETRIES + 1):
+
+    def attempt() -> tuple[tuple[int, str], str | None]:
         proc = subprocess.run(
             argv,
             cwd=REPOS / repo,
@@ -958,13 +993,11 @@ def judge_one(repo: str, prompt: str) -> tuple[int, str]:
             check=False,
         )
         score, reason = parse_verdict(proc.stdout)
-        if reason != "unparseable":
-            return score, reason
-        if attempt < RETRIES:
-            wait = 30 * attempt
-            print(f"      ! grader verdict unparseable; retrying in {wait}s", flush=True)
-            time.sleep(wait)
-    sys.exit(f"grader failed {RETRIES}x ({fail}) -- check auth: CLAUDE_CONFIG_DIR={WARM_CFG}")
+        if reason == "unparseable":
+            return (0, reason), f"verdict unparseable; check auth: CLAUDE_CONFIG_DIR={WARM_CFG}"
+        return (score, reason), None
+
+    return with_retries(attempt, "grader failed")
 
 
 @app.command()
@@ -978,15 +1011,12 @@ def judge(
     answered as well. Writes REPO.judged.jsonl.
     """
     ensure_repo(repo)
-    rows = [
-        json.loads(x) for x in (RESULTS / f"{repo}.jsonl").read_text().splitlines() if x.strip()
-    ]
-    qmap = {q["pair"]: q for q in json.loads((QUESTIONS / f"{repo}.json").read_text())}
+    rows = load_jsonl(RESULTS / f"{repo}.jsonl")
+    qmap = {q["pair"]: q for q in load_questions(repo)}
     out = RESULTS / f"{repo}.judged.jsonl"
     done: dict[tuple[str, str, str, int], dict] = {}
     if resume and out.exists():
-        for line in out.read_text().splitlines():
-            j = json.loads(line)
+        for j in load_jsonl(out):
             done[(j["pair"], j["role"], j["arm"], j["run"])] = j
         print(f"resume: {len(done)} judged rows will be skipped")
     with out.open("w") as f:
@@ -1009,13 +1039,10 @@ def judge(
 # --------------------------------------------------------------------------- #
 def row_metrics(r: dict) -> tuple[float, float, int]:
     """(cost, weighted_tokens, reads) for a raw result row."""
-    wtok = r["input_tokens"] + r["output_tokens"] + r["cache_creation"] + 0.1 * r["cache_read"]
-    reads = sum(
-        c
-        for n, c in r.get("tool_calls", {}).items()
-        if n in ("Read", "Grep", "Glob") or n.startswith("Bash")
+    wtok = weighted_tokens(
+        r["input_tokens"], r["output_tokens"], r["cache_creation"], r["cache_read"]
     )
-    return r.get("cost_usd", 0.0), wtok, reads
+    return r.get("cost_usd", 0.0), wtok, explore_reads(r.get("tool_calls", {}))
 
 
 @dataclass
@@ -1056,7 +1083,7 @@ def load_aggregate_rows(repo: str, allow_unjudged: bool) -> list[dict]:
             "trusted. Run `judge` first, or pass --allow-unjudged."
         )
     path = judged if judged.exists() else RESULTS / f"{repo}.jsonl"
-    rows = [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+    rows = load_jsonl(path)
     contaminated = sum(1 for r in rows if r.get("contaminated"))
     if contaminated:
         print(
@@ -1169,7 +1196,7 @@ def probe(repo: str) -> None:
     state, count = seed_status(seed)
     if state != "ok":
         sys.exit(f"seed DB {state} -- run `learn {repo}` first")
-    qs = json.loads((QUESTIONS / f"{repo}.json").read_text())
+    qs = load_questions(repo)
     print(f"\n{repo}: probing {seed.name} ({count} memories)\n")
     blind = 0
     for q in qs:
@@ -1221,8 +1248,7 @@ def pipeline(
     series, and silently rebuilding it between pipeline invocations would
     swap the memories under the experiment mid-series.
     """
-    needs_seed = any(a in _split_valid(arms, Arm, "arm") for a in (Arm.WARM_SEED, Arm.WARM_TOOL))
-    if needs_seed:
+    if arms_need_seed(_split_valid(arms, Arm, "arm")):
         state, count = seed_status(seed_db(repo))
         if relearn or state != "ok":
             reason = "--relearn" if relearn else f"seed DB {state}"
