@@ -96,6 +96,25 @@ Bad:  "As discussed, switch to Ruff"     (references conversation)
 Bad:  "The formatter preference"         (meaningless alone)
 ```
 
+### Code claims must carry inline anchors
+
+Every claim about code embeds `(relative/path.py:LINE symbol)` with line
+numbers verified in THIS session. Anchored memories are trusted by future
+sessions and displace file reads; bare claims get re-verified, which wastes
+the memory.
+
+```
+Good: "Dep cache key is (call, scopes, computed_scope)
+       (fastapi/dependencies/models.py:63 cache_key); same callable at
+       different scopes caches separately"
+Bad:  "The dependency cache key includes the scope"   (no anchor — will be re-derived)
+```
+
+For a whole subsystem mapped this session, prefer ONE brief (350-500 words:
+headline + 8-12 search keywords, mechanism narrative, final "Deviations:"
+section for where this codebase differs from public/upstream behavior),
+tagged `brief`, over many fragments.
+
 ### Tags must be specific
 
 ```

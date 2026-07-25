@@ -88,7 +88,9 @@ async def test_run_recall_timeline_text(capsys: pytest.CaptureFixture[str]) -> N
         await run_recall(db_path, project=None, query=None, limit=10, fmt="text")
         out = capsys.readouterr().out
         assert out.startswith("## rekal memory\n")
-        assert "- A durable fact (id " in out
+        assert "A durable fact" in out
+        assert "(id " in out  # write-mode render keeps ids for replaces=
+        assert "### [memory] (as of " in out
 
 
 async def test_run_recall_query(capsys: pytest.CaptureFixture[str]) -> None:

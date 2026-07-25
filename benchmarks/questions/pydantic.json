@@ -2,61 +2,61 @@
   {
     "pair": "model-construction",
     "subsystem": "Model construction (pydantic/_internal/_model_construction.py, main.py)",
-    "seed": "How does pydantic's ModelMetaclass build a BaseModel subclass at class-creation time? What is __pydantic_core_schema__?",
-    "heldout": "How does pydantic collect and resolve field definitions from class annotations, including fields inherited from base models?"
+    "seed": "What does ModelMetaclass actually do while a BaseModel subclass is being created, and where does __pydantic_core_schema__ come from?",
+    "heldout": "How do field definitions get collected from class annotations, including the ones inherited from parent models: what wins when they overlap?"
   },
   {
     "pair": "core-schema",
     "subsystem": "Core schema generation (pydantic/_internal/_generate_schema.py)",
-    "seed": "How does pydantic build a core schema from a Python type annotation to hand to pydantic-core?",
-    "heldout": "How does pydantic generate a core schema for a Union and for a parametrized generic type?"
+    "seed": "How does pydantic turn a Python type annotation into the core schema it hands to pydantic-core?",
+    "heldout": "What does core schema generation look like for a Union, and for a parametrized generic type?"
   },
   {
     "pair": "fields",
     "subsystem": "Fields (pydantic/fields.py, _internal/_fields.py)",
-    "seed": "What does pydantic's FieldInfo hold, and how is it built from a Field(...) call combined with the annotation?",
-    "heldout": "How does pydantic merge constraints and metadata from Annotated[...] into a field's schema?"
+    "seed": "What lives in a FieldInfo, and how does one get assembled from a Field(...) call plus the annotation next to it?",
+    "heldout": "When constraints and metadata sit inside Annotated[...], how do they get merged into the field's schema?"
   },
   {
     "pair": "validators",
     "subsystem": "Validators (pydantic/functional_validators.py, _internal/_decorators.py)",
-    "seed": "How do @field_validator and @model_validator get collected and wired into the core schema?",
-    "heldout": "How does mode='before' vs mode='after' change where a validator runs inside pydantic-core validation?"
+    "seed": "How do @field_validator and @model_validator decorators get collected off the class and wired into the core schema?",
+    "heldout": "Where exactly inside pydantic-core validation does a mode='before' validator run compared to mode='after'?"
   },
   {
     "pair": "serializers",
     "subsystem": "Serialization (pydantic/functional_serializers.py, main.py)",
-    "seed": "How do @field_serializer and @model_serializer plug into serialization and model_dump?",
-    "heldout": "How does model_dump handle mode='json' vs 'python', include/exclude, and by_alias?"
+    "seed": "How do @field_serializer and @model_serializer hook into serialization when model_dump runs?",
+    "heldout": "What changes inside model_dump between mode='json' and mode='python', and how do include/exclude and by_alias get applied?"
   },
   {
     "pair": "type-adapter",
     "subsystem": "TypeAdapter (pydantic/type_adapter.py)",
-    "seed": "What is TypeAdapter and how does it validate and serialize a type that is not a BaseModel?",
-    "heldout": "How does TypeAdapter build and cache its validator/serializer for a bare type?"
+    "seed": "What is TypeAdapter for, and how does it validate and serialize a type that is not a BaseModel?",
+    "heldout": "How does a TypeAdapter build its validator and serializer for a bare type, and where does caching come in?"
   },
   {
     "pair": "json-schema",
     "subsystem": "JSON Schema (pydantic/json_schema.py)",
-    "seed": "How does pydantic generate a JSON Schema from a model's core schema?",
-    "heldout": "How does pydantic handle $ref/definitions and reference collisions when emitting JSON Schema?"
+    "seed": "How does pydantic get from a model's core schema to the JSON Schema it emits?",
+    "heldout": "How are $ref and definitions handled when emitting JSON Schema, and what happens when two models' reference names collide?"
   },
   {
     "pair": "generics",
     "subsystem": "Generic models (pydantic/_internal/_generics.py)",
-    "seed": "How does pydantic support generic models (Generic[T]) and produce a concrete model per parametrization?",
-    "heldout": "How does pydantic cache parametrized generic models and avoid rebuilding identical parametrizations?"
+    "seed": "How does a generic model (Generic[T]) become a concrete model class when you parametrize it?",
+    "heldout": "How does pydantic avoid rebuilding a parametrized generic it has already seen, where is that cache and what keys it?"
   },
   {
     "pair": "config",
     "subsystem": "Config resolution (pydantic/_internal/_config.py, config.py)",
-    "seed": "How is ConfigDict resolved and merged across a model's inheritance chain?",
-    "heldout": "How do config settings like extra, frozen, and validate_assignment affect the generated core schema?"
+    "seed": "How does ConfigDict get resolved and merged across a model's inheritance chain?",
+    "heldout": "How do settings like extra, frozen, and validate_assignment actually change the core schema that gets generated?"
   },
   {
     "pair": "forward-refs",
     "subsystem": "Forward references (pydantic/_internal/_forward_ref.py, model_rebuild)",
-    "seed": "How does pydantic resolve forward references / string annotations, and what does model_rebuild do?",
-    "heldout": "How does pydantic build a core schema for a self-referencing (recursive) model?"
+    "seed": "How does pydantic deal with forward references and string annotations, and what does model_rebuild actually rebuild?",
+    "heldout": "How does core schema generation cope with a self-referencing (recursive) model without infinite recursion?"
   }
 ]

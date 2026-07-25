@@ -1,0 +1,62 @@
+[
+  {
+    "pair": "ast-references",
+    "subsystem": "AST reference/definition scanning (marimo/_ast/visitor.py)",
+    "seed": "When a cell's source gets analyzed, how does marimo statically work out which names the cell defines versus which it references from other cells? Comprehensions, lambdas, global declarations, and local mangling all complicate this: how are they handled?",
+    "heldout": "A helper referenced only inside a function body defined in the same cell would normally look temporary. Why does such a name still count as a live dependency, and how is that computed transitively through nested closures?"
+  },
+  {
+    "pair": "dataflow-graph",
+    "subsystem": "Reactive dependency graph (marimo/_runtime/dataflow)",
+    "seed": "When a cell registers into the reactive graph, how do its parent and child edges get derived from its defs and refs? What decides which existing cells become parents versus children?",
+    "heldout": "Two cells define the same variable name: how does the graph record and surface that conflict, and how does the kind of definition affect whether it's treated as a genuine conflict?"
+  },
+  {
+    "pair": "cell-compilation",
+    "subsystem": "Cell compilation (marimo/_ast/compiler.py)",
+    "seed": "How does a cell's raw source string become an executable code object? Include how the stable cache key for the code is derived and what's special about trailing-semicolon and markdown-only cells.",
+    "heldout": "When a cell raises, how does the compilation step make tracebacks and line numbers point back at the originating cell instead of an anonymous compiled fragment?"
+  },
+  {
+    "pair": "runtime-invalidation",
+    "subsystem": "Runtime execution + invalidation (marimo/_runtime/runtime.py, runner)",
+    "seed": "A cell's code changes and it's asked to run. How does the kernel compute the full set of cells that must re-execute and their order, and how do already-stale ancestors get folded into the run?",
+    "heldout": "A cell mid-run raises or gets interrupted: what happens to its descendants, and how does the cancellation and staleness show up for the cells that never executed?"
+  },
+  {
+    "pair": "ui-element-rpc",
+    "subsystem": "UI element value plumbing (marimo/_plugins/ui/_core, set_ui_element_value)",
+    "seed": "A user drags a slider in the frontend. How does the new value reach the Python UIElement object, and how do cells referencing that element get re-run?",
+    "heldout": "When the updated element is a derived view or lens of another element, how does the incoming value get resolved back to the parent element so reactivity triggers through the source?"
+  },
+  {
+    "pair": "notebook-format",
+    "subsystem": "Notebook .py file format (marimo/_ast/codegen.py, load.py)",
+    "seed": "How does an in-memory set of cells get serialized back into a runnable .py notebook: how does each cell become a decorated function whose signature and return tuple encode its refs and defs?",
+    "heldout": "How do header comments at the top of a notebook file survive a load-then-save cycle, and what makes a header count as invalid and get dropped?"
+  },
+  {
+    "pair": "module-autoreload",
+    "subsystem": "Module reloading (marimo/_runtime/reload)",
+    "seed": "How does marimo notice that an imported user module changed on disk and hot-reload it, including patching objects so already-defined functions and classes pick up the new source?",
+    "heldout": "How does the reloader tell user modules apart from stdlib and site-packages, and why does the background watcher loop treat non-user modules differently from the per-cell fast path?"
+  },
+  {
+    "pair": "persistent-caching",
+    "subsystem": "Caching layer (marimo/_save/hash.py, cache.py)",
+    "seed": "When a block gets memoized, what goes into its cache key: how do the code itself, referenced variable values, and upstream context combine into the hash that decides a hit?",
+    "heldout": "On a cache hit, how do the stored definitions get restored into the executing scope, and how is the restore ordered so cross-definition dependencies (like a pickled instance of a cell-defined class) still work?"
+  },
+  {
+    "pair": "sql-cells",
+    "subsystem": "SQL cell support (marimo/_ast/sql_visitor.py, _sql)",
+    "seed": "How does marimo statically pull the tables, views, schemas, and catalogs a SQL cell creates or references, so SQL cells can sit in the reactive graph next to Python cells?",
+    "heldout": "For hierarchical references like catalog.schema.table, how does a reference in one SQL cell get matched to a definition in another, and how are CTEs kept from counting as external references?"
+  },
+  {
+    "pair": "session-modes",
+    "subsystem": "Kernel/session architecture (marimo/_server/session_manager.py)",
+    "seed": "How does the server create and track a notebook session, and where does the kernel live in edit mode versus run mode, subprocess or in-process thread, and with what app isolation?",
+    "heldout": "How does the session mode decide whether a notebook's source code gets loaded and exposed, and what controls whether app instances stay isolated when serving several notebooks?"
+  }
+]

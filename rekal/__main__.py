@@ -42,12 +42,17 @@ async def open_db(db_path: str) -> AsyncIterator[SqliteDatabase]:
     hook CLI path (which never opens a DB for health/export/prune) stays light.
     """
     from rekal.adapters.sqlite_adapter import SqliteDatabase
+    from rekal.config import resolve_readonly
     from rekal.embeddings import FastEmbedder
 
     if not Path(db_path).exists():
         print(f"Database not found: {db_path}")
         sys.exit(1)
-    async with SqliteDatabase.session(db_path, FastEmbedder()) as db:
+    # Frozen DBs (benchmark seeds) must stay inspectable: health/export open
+    # read-only when the file is unwritable instead of failing on migration.
+    async with SqliteDatabase.session(
+        db_path, FastEmbedder(), readonly=resolve_readonly(db_path)
+    ) as db:
         yield db
 
 
@@ -70,7 +75,43 @@ async def run_export(db_path: str) -> None:
         print(json.dumps(data, indent=2))
 
 
-def render_recall(memories: list[MemoryResult], *, project: str | None, fmt: RecallFormat) -> str:
+# Trust framing lives with the memories themselves: injected knowledge is only
+# cheaper than reading files if the model acts on it instead of re-verifying,
+# and provenance anchors + an explicit do-not-re-check instruction are what
+# make that happen (bare facts get re-derived).
+RECALL_HEADER = (
+    "Facts below were verified against this codebase when learned; file:line "
+    "anchors mark where. Build on them directly — cite anchors instead of "
+    "re-opening files to re-check what a memory already states. Read code "
+    "only for what these do not cover."
+)
+
+# ~1200 tokens. Injection is paid on every turn via the cached prefix, so the
+# block is budgeted; whole memories only (a truncated brief is a corrupted
+# brief), highest-scored first, and the top hit always ships even when it
+# alone exceeds the budget.
+RECALL_BUDGET_CHARS = 4800
+
+
+def memory_block(memory: MemoryResult, *, readonly: bool) -> str:
+    """One rendered memory: '### [tag] (as of date)' header + raw content.
+
+    The id is only useful to pass back as ``replaces=`` on a store, so it is
+    omitted in readonly sessions where no store tool exists.
+    """
+    label = memory.tags[0] if memory.tags else "memory"
+    as_of = f" (as of {memory.created_at[:10]})" if memory.created_at else ""
+    suffix = "" if readonly else f" (id {memory.id})"
+    return f"### [{label}]{as_of}{suffix}\n{memory.content}"
+
+
+def render_recall(
+    memories: list[MemoryResult],
+    *,
+    project: str | None,
+    fmt: RecallFormat,
+    readonly: bool = False,
+) -> str:
     """Render memories for hook injection. Empty text renders to "" (inject
     nothing); empty JSON renders to "[]"."""
     if fmt == "json":
@@ -78,9 +119,15 @@ def render_recall(memories: list[MemoryResult], *, project: str | None, fmt: Rec
     if not memories:
         return ""
     scope = f" (project: {project})" if project else ""
-    lines = [f"## rekal memory{scope}"]
-    lines.extend(f"- {m.content} (id {m.id})" for m in memories)
-    return "\n".join(lines)
+    parts = [f"## rekal memory{scope}\n{RECALL_HEADER}"]
+    used = len(parts[0])
+    for i, memory in enumerate(memories):
+        block = memory_block(memory, readonly=readonly)
+        if i > 0 and used + len(block) > RECALL_BUDGET_CHARS:
+            break
+        parts.append(block)
+        used += len(block)
+    return "\n\n".join(parts)
 
 
 async def recall_memories(
@@ -92,11 +139,13 @@ async def recall_memories(
         return []
 
     from rekal.adapters.sqlite_adapter import SqliteDatabase
-    from rekal.config import find_config_file, load_file_config
+    from rekal.config import find_config_file, load_file_config, resolve_readonly
     from rekal.embeddings import FastEmbedder
     from rekal.scoring import resolve_weights
 
-    async with SqliteDatabase.session(db_path, FastEmbedder()) as db:
+    async with SqliteDatabase.session(
+        db_path, FastEmbedder(), readonly=resolve_readonly(db_path)
+    ) as db:
         if query:
             # Query path embeds the query and runs hybrid search directly.
             # The relevance floor keeps injection from carrying low-signal
@@ -121,8 +170,10 @@ async def run_recall(
     limit: int,
     fmt: RecallFormat,
 ) -> None:
+    from rekal.config import resolve_readonly
+
     memories = await recall_memories(db_path, project=project, query=query, limit=limit)
-    output = render_recall(memories, project=project, fmt=fmt)
+    output = render_recall(memories, project=project, fmt=fmt, readonly=resolve_readonly(db_path))
     if output:
         print(output)
 
@@ -248,7 +299,9 @@ def emit(payload: dict[str, object]) -> None:
     print(json.dumps(payload))
 
 
-def recall_text(db_path: str, project: str | None, query: str | None, limit: int) -> str | None:
+def recall_text(
+    db_path: str, project: str | None, query: str | None, limit: int, *, readonly: bool = False
+) -> str | None:
     """Recall memory for hook injection as rendered text, or None.
 
     Never raises: recall must not block a session or turn, so any failure
@@ -259,7 +312,7 @@ def recall_text(db_path: str, project: str | None, query: str | None, limit: int
         memories = asyncio.run(recall_memories(db_path, project=project, query=query, limit=limit))
     except Exception:  # recall must never block the session/turn
         return None
-    return render_recall(memories, project=project, fmt="text") or None
+    return render_recall(memories, project=project, fmt="text", readonly=readonly) or None
 
 
 def read_prompt() -> str | None:
@@ -280,19 +333,38 @@ def deny_if_memory_file(reason: str) -> None:
         emit(hooks.deny_payload(reason))
 
 
-@hook_app.command("session-start", help="SessionStart: inject recency recall + directive.")
+def hook_readonly(db_path: str) -> bool:
+    """Readonly resolution for hook handlers (env flag or unwritable DB file)."""
+    from rekal.config import resolve_readonly
+
+    return resolve_readonly(db_path)
+
+
+@hook_app.command("session-start", help="SessionStart: inject the memory directive.")
 def hook_session_start(ctx: typer.Context) -> None:
-    project = os.environ.get("REKAL_PROJECT")
-    memory = recall_text(get_db_path(ctx.obj), project, None, 10)
-    emit(hooks.context_payload("SessionStart", hooks.SESSION_START_DIRECTIVE, memory))
+    # Deliberately no recall here: recency-ordered, query-less injection is
+    # mostly the wrong topic in a multi-subsystem DB — measured cost with no
+    # measured benefit. Recall is query-matched, at UserPromptSubmit only.
+    readonly = hook_readonly(get_db_path(ctx.obj))
+    directive = (
+        hooks.SESSION_START_DIRECTIVE_READONLY if readonly else hooks.SESSION_START_DIRECTIVE
+    )
+    emit(hooks.context_payload("SessionStart", directive))
 
 
 @hook_app.command("user-prompt-submit", help="UserPromptSubmit: inject query recall + directive.")
 def hook_user_prompt_submit(ctx: typer.Context) -> None:
     prompt = read_prompt()
     project = os.environ.get("REKAL_PROJECT")
-    memory = recall_text(get_db_path(ctx.obj), project, prompt, 5) if prompt else None
-    emit(hooks.context_payload("UserPromptSubmit", hooks.PROMPT_SUBMIT_DIRECTIVE, memory))
+    db_path = get_db_path(ctx.obj)
+    readonly = hook_readonly(db_path)
+    memory = recall_text(db_path, project, prompt, 10, readonly=readonly) if prompt else None
+    directive = (
+        hooks.PROMPT_SUBMIT_DIRECTIVE_READONLY if readonly else hooks.PROMPT_SUBMIT_DIRECTIVE
+    )
+    payload = hooks.context_payload("UserPromptSubmit", directive, memory)
+    if payload:
+        emit(payload)
 
 
 @hook_app.command("block-memory-writes", help="PreToolUse(Edit|Write): deny memory-file writes.")

@@ -1,0 +1,62 @@
+[
+  {
+    "pair": "routing-trie",
+    "subsystem": "Runtime route matching (litestar/_asgi/routing_trie)",
+    "seed": "How does an incoming request path get matched to a route at runtime, and how are path parameters pulled out and parsed during that walk?",
+    "heldout": "For a mounted ASGI sub-application, how does the router split the incoming path between the mount prefix and the sub-app, and how does it keep a mount from shadowing regular handlers registered under the same prefix?"
+  },
+  {
+    "pair": "di-provide",
+    "subsystem": "Dependency injection provider (litestar/di.py)",
+    "seed": "What happens when a dependency provider is constructed: how does it classify the wrapped callable, and what decides whether the dependency runs in a worker thread?",
+    "heldout": "When does constructing a dependency provider raise a configuration error, and which combination of caching and callable kind triggers it?"
+  },
+  {
+    "pair": "layered-config",
+    "subsystem": "Layered config merging (litestar/handlers/base.py)",
+    "seed": "The same option can be set on the app, a router, a controller, and the handler. How do those layers combine into the final handler configuration?",
+    "heldout": "For guards and middleware specifically, in what order do outer-layer entries appear next to the handler's own, and how does that differ from how dependencies or type encoders merge?"
+  },
+  {
+    "pair": "signature-model",
+    "subsystem": "Signature modelling (litestar/_signature)",
+    "seed": "How does a handler's parsed function signature become a runtime validation model, and what library does the validating underneath?",
+    "heldout": "When incoming values fail validation, what decides whether the client sees a validation error versus the server raising an internal error?"
+  },
+  {
+    "pair": "dto-codegen",
+    "subsystem": "DTO code-generation backend (litestar/dto/_codegen_backend.py)",
+    "seed": "How does the code-generating DTO backend get from raw request bytes to a populated model instance: what code does it actually generate for the transfer?",
+    "heldout": "When encoding outbound data whose model sits inside a generic wrapper attribute, how does the backend deal with the wrapper while producing the encodable value?"
+  },
+  {
+    "pair": "channels",
+    "subsystem": "Channels pub/sub plugin (litestar/channels/plugin.py)",
+    "seed": "How does a published message travel from the calling code to a channel's subscribers, and which background tasks carry it?",
+    "heldout": "What can a subscriber do when its backlog fills up, and how do the different backlog strategies differ in how they treat the underlying queue?"
+  },
+  {
+    "pair": "event-emitter",
+    "subsystem": "In-process event emitter (litestar/events/emitter.py)",
+    "seed": "How does the in-process event emitter get an emitted event to its registered listeners, and what concurrency primitive does the work?",
+    "heldout": "What happens when an event is emitted for an identifier with no registered listeners?"
+  },
+  {
+    "pair": "middleware-stack",
+    "subsystem": "Per-route middleware assembly (litestar/_asgi/routing_trie/mapping.py)",
+    "seed": "How is the per-route ASGI middleware stack put together at startup so outer-layer middleware runs before inner ones?",
+    "heldout": "Why does an exception-handling wrapper get inserted between the route handler and user middleware, and when is that insertion skipped entirely?"
+  },
+  {
+    "pair": "response-pipeline",
+    "subsystem": "Response rendering pipeline (litestar/handlers/http_handlers)",
+    "seed": "After a handler returns, how does its value become an ASGI response, and how does the path differ when the handler already returned a Response object versus plain data?",
+    "heldout": "How does response caching hook into that pipeline: what exactly gets persisted for a cached response, and how does a cached entry get replayed later?"
+  },
+  {
+    "pair": "dependency-batching",
+    "subsystem": "Dependency resolution ordering (litestar/_kwargs/dependencies.py)",
+    "seed": "How is the resolution order computed for a handler's dependencies and their nested sub-dependencies, and how does the resolver exploit independence between them to run some concurrently?",
+    "heldout": "How do generator-based dependencies get torn down after the response, and where does that cleanup hook into the resolution machinery?"
+  }
+]
