@@ -1212,8 +1212,24 @@ def pipeline(
     roles: str = typer.Option(",".join(Role), help="comma list: seed,heldout"),
     pairs: str | None = typer.Option(None, help="comma list of pair names (default: all)"),
     resume: bool = typer.Option(False, help="resume run+judge from recorded rows"),
+    relearn: bool = typer.Option(False, help="rebuild the seed DB even if one exists"),
 ) -> None:
-    """run -> judge -> aggregate, one enforced order. The verdict is the exit code."""
+    """(learn if needed) -> run -> judge -> aggregate. The verdict is the exit code.
+
+    Learn runs only when the seed DB is missing/empty/unopenable (or with
+    --relearn): the seed is a frozen artifact for the whole measurement
+    series, and silently rebuilding it between pipeline invocations would
+    swap the memories under the experiment mid-series.
+    """
+    needs_seed = any(a in _split_valid(arms, Arm, "arm") for a in (Arm.WARM_SEED, Arm.WARM_TOOL))
+    if needs_seed:
+        state, count = seed_status(seed_db(repo))
+        if relearn or state != "ok":
+            reason = "--relearn" if relearn else f"seed DB {state}"
+            print(f"pipeline: running learn first ({reason})")
+            learn(repo)
+        else:
+            print(f"pipeline: reusing frozen seed DB ({count} memories); --relearn to rebuild")
     run(repo, n=n, arms=arms, roles=roles, pairs=pairs, resume=resume)
     judge(repo, resume=resume)
     aggregate(repo)
