@@ -4,23 +4,36 @@ Prove rekal cuts COST by recalling cross-session knowledge, so a "warm"
 agent skips exploration a "cold" agent must redo. The success criterion is
 a net cost win at answer-quality parity; tokens are a recorded diagnostic.
 
-## Two theses
+## Thesis
 
-- **Density thesis** (tinygrad): non-obvious code -> recall beats
-  re-derivation. Small file-count, high reasoning depth.
-- **Size thesis** (pytorch): more files -> more search -> bigger delta.
-  ~11x tinygrad on both file-count and LOC -> plots savings vs repo size.
-- **Breadth** (fastapi, pydantic): mid-size, vastly popular libraries as
-  additional data points between the two extremes.
+Memory pays where the model cannot answer from training data: savings come
+from exploration the cold agent is FORCED to do and the warm agent skips.
+Repo selection therefore optimizes for low parametric coverage of the
+internals, not size. (A pytorch arm was tried and removed: cold answered
+its world-famous internals in 1 turn / 0 reads from training data — nothing
+to displace. Fame beats size.)
+
+- **Stale knowledge** (tinygrad, langgraph): internals churn faster than
+  training data; memory beats an outdated prior.
+- **Shallow coverage** (textual, sqlmodel, pydantic): usage is famous,
+  mechanism is not.
+- **Thin coverage** (litestar, marimo): recent/rising, little written about
+  them at all.
+- **Wrong prior** (fastapi): pinned checkout is modified vs upstream;
+  training data is actively misleading.
 
 ## Repos (pinned, shallow clones under repos/)
 
-| repo     | commit     | notes                          |
-|----------|------------|--------------------------------|
-| tinygrad | 9267fca9   | density thesis (small, dense)  |
-| pytorch  | 8e6ba636   | size thesis (~11x tinygrad)    |
-| fastapi  | 704fbe14   | mid-size breadth point         |
-| pydantic | a2a6577d   | mid-size breadth point         |
+| repo      | commit     | notes                                |
+|-----------|------------|--------------------------------------|
+| tinygrad  | 9267fca9   | stale: fast-churn internals          |
+| fastapi   | 704fbe14   | wrong prior: modified checkout       |
+| pydantic  | a2a6577d   | shallow: v2 internals underdocumented|
+| sqlmodel  | 967abf31   | shallow: metaclass bridge internals  |
+| textual   | 06dbeef4   | shallow: compositor/CSS internals    |
+| langgraph | 1e1ca88d   | stale: continuous rewrite churn      |
+| litestar  | 5427d26f   | thin: rising, less written about     |
+| marimo    | f514eddc   | thin: recent, complex runtime        |
 
 ## Questions
 

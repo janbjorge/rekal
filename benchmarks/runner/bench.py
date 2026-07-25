@@ -58,19 +58,18 @@ WARM_CFG = CONFIG / "warm"
 # Pinned targets: exact commit matters for reproducibility, so it is fetched
 # by SHA (GitHub allows this) rather than trusting whatever HEAD happens to be.
 #
-# Selection rule learned the expensive way (pytorch): fame beats size. Cold
-# answers world-famous internals from training data in 1 turn / 0 reads, so
-# there is nothing for memory to displace. Repos here are popular but chosen
-# so parametric knowledge is STALE (fast churn: tinygrad, langgraph), SHALLOW
-# (internals nobody blogs about: textual, sqlmodel), or THIN (recent/rising:
-# litestar, marimo). pytorch/pydantic stay as documented boundary cases —
-# their questions need commit-pinning before their runs mean anything.
+# Selection rule learned the expensive way (with pytorch, since removed):
+# fame beats size. Cold answers world-famous internals from training data in
+# 1 turn / 0 reads, so there is nothing for memory to displace. Repos here
+# are popular but chosen so parametric knowledge is STALE (fast churn:
+# tinygrad, langgraph), SHALLOW (internals nobody blogs about: textual,
+# sqlmodel), THIN (recent/rising: litestar, marimo), or WRONG (modified
+# checkout: fastapi).
 REPO_SPECS = {
     "tinygrad": (
         "git@github.com:tinygrad/tinygrad.git",
         "9267fca91a0133b620c4068829fff7baf3fe00dd",
     ),
-    "pytorch": ("git@github.com:pytorch/pytorch.git", "8e6ba63688df3eb22a39eb39302d98cc80672662"),
     "fastapi": ("git@github.com:fastapi/fastapi.git", "704fbe1439341994100622853f515a8af7ccc2eb"),
     "pydantic": (
         "git@github.com:pydantic/pydantic.git",
