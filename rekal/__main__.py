@@ -86,6 +86,18 @@ RECALL_HEADER = (
     "only for what these do not cover."
 )
 
+# Readonly sessions mount no rekal tools, so when a long task drifts past
+# what the prompt-matched block covers, the shell CLI is the only escalation
+# channel. It is priced like any other shell call but returns distilled,
+# anchored briefs instead of raw file text. Write-mode sessions already get
+# a memory_build_context pointer from their directive, so this ships only in
+# the readonly header.
+RECALL_ESCALATION = (
+    "If you need stored knowledge on a topic this block does not cover, run "
+    "`rekal recall --query '<topic terms>'` in the shell before re-deriving "
+    "it from source."
+)
+
 # ~1200 tokens. Injection is paid on every turn via the cached prefix, so the
 # block is budgeted; whole memories only (a truncated brief is a corrupted
 # brief), highest-scored first, and the top hit always ships even when it
@@ -119,7 +131,8 @@ def render_recall(
     if not memories:
         return ""
     scope = f" (project: {project})" if project else ""
-    parts = [f"## rekal memory{scope}\n{RECALL_HEADER}"]
+    header = f"{RECALL_HEADER} {RECALL_ESCALATION}" if readonly else RECALL_HEADER
+    parts = [f"## rekal memory{scope}\n{header}"]
     used = len(parts[0])
     for i, memory in enumerate(memories):
         block = memory_block(memory, readonly=readonly)

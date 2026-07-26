@@ -108,9 +108,13 @@ class Arm(StrEnum):
     # server mounted alongside the hook). One pilot slice quantifies what a
     # model-initiated recall turn costs vs pure injection.
     WARM_TOOL = "warm-tool"
+    # Comparison arm, off by default: injection plus the shell escalation
+    # channel (`rekal recall` via Bash). No MCP, no schemas — prices the
+    # header's mid-task CLI hint against pure injection.
+    WARM_CLI = "warm-cli"
 
 
-# The arms a normal `run` measures. WARM_TOOL is opt-in via --arms.
+# The arms a normal `run` measures. WARM_TOOL/WARM_CLI are opt-in via --arms.
 DEFAULT_ARMS = (Arm.COLD, Arm.WARM_EMPTY, Arm.WARM_SEED)
 
 
@@ -451,6 +455,14 @@ def build_cmd(
         # Comparison arm: readonly server mounted, recall tool pre-approved.
         argv += ["--mcp-config", mcp_config(), "--allowedTools", COLD_TOOLS + "," + RECALL_TOOLS]
         return argv, warm_env
+    if arm == Arm.WARM_CLI:
+        # Comparison arm: zero MCP like the measured arms, plus the shell
+        # escalation channel the injected header advertises. PATH prepend
+        # makes the bare `rekal` the header names resolve to the same binary
+        # the hook runs, so Bash(rekal:*) matches the command name.
+        warm_env |= {"PATH": f"{Path(rekal_bin()).parent}:{warm_env['PATH']}"}
+        argv += ["--allowedTools", COLD_TOOLS + ",Bash(rekal:*)"]
+        return argv, warm_env
     # Measured injection-only arms: zero MCP, cold's exact tool surface.
     argv += ["--allowedTools", COLD_TOOLS]
     return argv, warm_env
@@ -764,7 +776,7 @@ def load_jsonl(path: Path) -> list[dict]:
 
 def arms_need_seed(arm_list: list[str]) -> bool:
     """Whether any requested arm reads the frozen seed DB."""
-    return Arm.WARM_SEED in arm_list or Arm.WARM_TOOL in arm_list
+    return bool({Arm.WARM_SEED, Arm.WARM_TOOL, Arm.WARM_CLI} & set(arm_list))
 
 
 @app.command()
