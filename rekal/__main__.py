@@ -131,25 +131,27 @@ def render_recall(
 
 
 async def recall_memories(
-    db_path: str, *, project: str | None, query: str | None, limit: int
+    db_path: str, *, project: str | None, query: str | None, limit: int, readonly: bool
 ) -> list[MemoryResult]:
     """Fetch memories for recall. A missing DB yields ``[]`` — recall never
-    treats an absent DB as an error, unlike health/export."""
+    treats an absent DB as an error, unlike health/export.
+
+    ``readonly`` is resolved ONCE by the caller and used for both the DB open
+    here and the render there, so the two can never disagree."""
     if not Path(db_path).exists():
         return []
 
     from rekal.adapters.sqlite_adapter import SqliteDatabase
-    from rekal.config import find_config_file, load_file_config, resolve_readonly
     from rekal.embeddings import FastEmbedder
-    from rekal.scoring import resolve_weights
 
-    async with SqliteDatabase.session(
-        db_path, FastEmbedder(), readonly=resolve_readonly(db_path)
-    ) as db:
+    async with SqliteDatabase.session(db_path, FastEmbedder(), readonly=readonly) as db:
         if query:
             # Query path embeds the query and runs hybrid search directly.
             # The relevance floor keeps injection from carrying low-signal
             # hits into every prompt.
+            from rekal.config import find_config_file, load_file_config
+            from rekal.scoring import resolve_weights
+
             weights = resolve_weights(load_file_config(find_config_file()))
             return await db.search(
                 query,
@@ -158,7 +160,8 @@ async def recall_memories(
                 weights=weights,
                 min_score=0.25,
             )
-        # No query (session start): recency-ordered, no embedding load.
+        # No query (CLI `recall` without --query): recency-ordered, no
+        # embedding needed for ranking.
         return await db.memory_timeline(project=project, limit=limit)
 
 
@@ -172,8 +175,11 @@ async def run_recall(
 ) -> None:
     from rekal.config import resolve_readonly
 
-    memories = await recall_memories(db_path, project=project, query=query, limit=limit)
-    output = render_recall(memories, project=project, fmt=fmt, readonly=resolve_readonly(db_path))
+    readonly = resolve_readonly(db_path)
+    memories = await recall_memories(
+        db_path, project=project, query=query, limit=limit, readonly=readonly
+    )
+    output = render_recall(memories, project=project, fmt=fmt, readonly=readonly)
     if output:
         print(output)
 
@@ -309,7 +315,9 @@ def recall_text(
     directive alone. A missing DB already yields [] in recall_memories.
     """
     try:
-        memories = asyncio.run(recall_memories(db_path, project=project, query=query, limit=limit))
+        memories = asyncio.run(
+            recall_memories(db_path, project=project, query=query, limit=limit, readonly=readonly)
+        )
     except Exception:  # recall must never block the session/turn
         return None
     return render_recall(memories, project=project, fmt="text", readonly=readonly) or None
@@ -333,36 +341,32 @@ def deny_if_memory_file(reason: str) -> None:
         emit(hooks.deny_payload(reason))
 
 
-def hook_readonly(db_path: str) -> bool:
-    """Readonly resolution for hook handlers (env flag or unwritable DB file)."""
-    from rekal.config import resolve_readonly
-
-    return resolve_readonly(db_path)
-
-
 @hook_app.command("session-start", help="SessionStart: inject the memory directive.")
 def hook_session_start(ctx: typer.Context) -> None:
     # Deliberately no recall here: recency-ordered, query-less injection is
     # mostly the wrong topic in a multi-subsystem DB — measured cost with no
     # measured benefit. Recall is query-matched, at UserPromptSubmit only.
-    readonly = hook_readonly(get_db_path(ctx.obj))
-    directive = (
-        hooks.SESSION_START_DIRECTIVE_READONLY if readonly else hooks.SESSION_START_DIRECTIVE
-    )
-    emit(hooks.context_payload("SessionStart", directive))
+    from rekal.config import resolve_readonly
+
+    readonly = resolve_readonly(get_db_path(ctx.obj))
+    emit(hooks.context_payload("SessionStart", hooks.directive("SessionStart", readonly=readonly)))
 
 
 @hook_app.command("user-prompt-submit", help="UserPromptSubmit: inject query recall + directive.")
 def hook_user_prompt_submit(ctx: typer.Context) -> None:
+    from rekal.config import resolve_readonly
+
     prompt = read_prompt()
     project = os.environ.get("REKAL_PROJECT")
     db_path = get_db_path(ctx.obj)
-    readonly = hook_readonly(db_path)
+    # Resolved ONCE per hook invocation and threaded through open + render:
+    # re-deriving it per layer let the DB open readonly while the render
+    # claimed write-mode (or vice versa) if the file's writability raced.
+    readonly = resolve_readonly(db_path)
     memory = recall_text(db_path, project, prompt, 10, readonly=readonly) if prompt else None
-    directive = (
-        hooks.PROMPT_SUBMIT_DIRECTIVE_READONLY if readonly else hooks.PROMPT_SUBMIT_DIRECTIVE
+    payload = hooks.context_payload(
+        "UserPromptSubmit", hooks.directive("UserPromptSubmit", readonly=readonly), memory
     )
-    payload = hooks.context_payload("UserPromptSubmit", directive, memory)
     if payload:
         emit(payload)
 
