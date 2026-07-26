@@ -871,6 +871,12 @@ def learn_prompt(repo: str, q: dict) -> str:
     anchored subsystem BRIEF (complete picture = permission to stop reading)
     plus a few gotcha atoms whose leading symbols make hybrid search rank the
     right subsystem for held-out questions.
+
+    The closing coverage audit targets the seed/heldout gap (pydantic: seed
+    +77% vs heldout +33%): briefs written right after answering one question
+    lean toward what THAT question probed, and heldout questions pay for the
+    lean. Making the agent name what it cannot answer, then close those gaps
+    with verified anchors, is the cheapest lever — learn runs once per repo.
     """
     pair = q["pair"]
     return (
@@ -900,6 +906,17 @@ def learn_prompt(repo: str, q: dict) -> str:
         "- Put the searchable terms FIRST (symbol names, feature keywords), then "
         "the fact.\n"
         f'- Tags: ["{pair}", "gotcha", "<key-symbol>"].\n\n'
+        "FINALLY, RUN A COVERAGE AUDIT before you finish:\n"
+        "- List 3-5 questions a developer could plausibly ask about this "
+        "subsystem that the memories you just stored can NOT answer — a "
+        "different angle, a different lifecycle stage, an adjacent mechanism "
+        "you skipped because this question did not need it.\n"
+        "- Close each gap: explore what you must (a read or two), then add a "
+        "gotcha or rewrite the brief (memory_delete the old brief, store the "
+        "complete version) with anchors you verified in THIS session.\n"
+        "- A gap you cannot close with verified anchors stays open; never "
+        "paper over one with unanchored claims. Finish when your listed "
+        "questions are answerable from stored memories alone.\n\n"
         "Rules: state facts so a fresh agent can act WITHOUT re-verifying — exact "
         "names, exact call order, exact anchors. Do not store your answer as "
         "prose Q&A. Do not store facts obvious from public documentation unless "
