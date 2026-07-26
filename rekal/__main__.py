@@ -147,18 +147,22 @@ async def recall_memories(
     async with SqliteDatabase.session(db_path, FastEmbedder(), readonly=readonly) as db:
         if query:
             # Query path embeds the query and runs hybrid search directly.
-            # The relevance floor keeps injection from carrying low-signal
-            # hits into every prompt.
-            from rekal.config import find_config_file, load_file_config
+            # min_score keeps low-signal hits out of every prompt;
+            # min_relevance is the injection gate — when the best match is
+            # weak, injecting NOTHING (the turn degrades to cold) beats
+            # injecting a tangential brief that sends the model on extra
+            # verification work.
+            from rekal.config import find_config_file, load_file_config, resolve_min_relevance
             from rekal.scoring import resolve_weights
 
-            weights = resolve_weights(load_file_config(find_config_file()))
+            file_config = load_file_config(find_config_file())
             return await db.search(
                 query,
                 limit=limit,
                 project=project,
-                weights=weights,
+                weights=resolve_weights(file_config),
                 min_score=0.25,
+                min_relevance=resolve_min_relevance(file_config),
             )
         # No query (CLI `recall` without --query): recency-ordered, no
         # embedding needed for ranking.

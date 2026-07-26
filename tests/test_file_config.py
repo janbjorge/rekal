@@ -5,7 +5,10 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from rekal.adapters.mcp_adapter import find_config_file, load_file_config
+from rekal.config import resolve_min_relevance
 from rekal.scoring import resolve_weights
 
 # ── find_config_file ─────────────────────────────────────────────────
@@ -71,3 +74,37 @@ def test_resolve_weights_defaults() -> None:
     assert weights.w_vec == 0.4
     assert weights.w_recency == 0.2
     assert weights.half_life == 30.0
+
+
+# ── resolve_min_relevance ────────────────────────────────────────────
+
+
+def test_resolve_min_relevance_default_off() -> None:
+    assert resolve_min_relevance() == 0.0
+    assert resolve_min_relevance({}) == 0.0
+
+
+def test_resolve_min_relevance_from_file_config() -> None:
+    assert resolve_min_relevance({"min_relevance": 0.17}) == 0.17
+
+
+def test_resolve_min_relevance_env_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REKAL_MIN_RELEVANCE", "0.3")
+    assert resolve_min_relevance({"min_relevance": 0.17}) == 0.3
+
+
+def test_resolve_min_relevance_bad_env_falls_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("REKAL_MIN_RELEVANCE", "not-a-float")
+    assert resolve_min_relevance({"min_relevance": 0.17}) == 0.17
+
+
+def test_load_file_config_min_relevance_key() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = Path(tmp) / "config.yml"
+        cfg.write_text("scoring:\n  min_relevance: 0.2\n")
+        loaded = load_file_config(cfg)
+        assert loaded["min_relevance"] == 0.2
+        # The scoring-weights model ignores the extra key.
+        assert resolve_weights(loaded).w_fts == 0.4

@@ -9,6 +9,7 @@ from rekal.scoring import (
     normalize_fts,
     normalize_recency,
     normalize_vec,
+    relevance,
 )
 
 
@@ -91,3 +92,31 @@ def test_scoring_weights_defaults() -> None:
 
 def test_scoring_weights_model_fields() -> None:
     assert set(ScoringWeights.model_fields) == {"w_fts", "w_vec", "w_recency", "half_life"}
+
+
+def test_relevance_ignores_recency() -> None:
+    fresh = RawScores(fts_score=-5.0, vec_score=0.3, recency_days=0.0)
+    stale = RawScores(fts_score=-5.0, vec_score=0.3, recency_days=365.0)
+    assert relevance(fresh) == relevance(stale)
+
+
+def test_relevance_strong_match_near_one() -> None:
+    assert relevance(RawScores(fts_score=-20.0, vec_score=0.0)) > 0.9
+
+
+def test_relevance_no_match_is_zero() -> None:
+    assert relevance(RawScores(fts_score=0.0, vec_score=1.0)) == 0.0
+
+
+def test_relevance_zero_weight_mass() -> None:
+    w = ScoringWeights(w_fts=0.0, w_vec=0.0, w_recency=1.0)
+    assert relevance(RawScores(fts_score=-20.0, vec_score=0.0), w) == 0.0
+
+
+def test_relevance_independent_of_weight_scale() -> None:
+    # Normalizing by the fts+vec mass makes the gate mean the same thing
+    # whether relevance carries 40% or 100% of the hybrid score.
+    raw = RawScores(fts_score=-5.0, vec_score=0.2)
+    small = ScoringWeights(w_fts=0.2, w_vec=0.2, w_recency=0.6)
+    big = ScoringWeights(w_fts=0.5, w_vec=0.5, w_recency=0.0)
+    assert abs(relevance(raw, small) - relevance(raw, big)) < 1e-12

@@ -49,6 +49,23 @@ def normalize_recency(days: float, half_life: float = 30.0) -> float:
     return math.exp(-0.693 * days / half_life)
 
 
+def relevance(raw: RawScores, weights: ScoringWeights | None = None) -> float:
+    """Recency-free relevance in [0, 1], for gating injection-worthiness.
+
+    The hybrid score blends in recency, so a fixed floor on it would suppress
+    old-but-correct knowledge while passing fresh noise. Normalizing by the
+    fts+vec weight mass keeps the floor meaning the same thing under any
+    weight configuration.
+    """
+    w = weights or ScoringWeights()
+    mass = w.w_fts + w.w_vec
+    if mass <= 0:
+        return 0.0
+    fts = normalize_fts(raw.fts_score)
+    vec = normalize_vec(raw.vec_score)
+    return (w.w_fts * fts + w.w_vec * vec) / mass
+
+
 def combine_scores(raw: RawScores, weights: ScoringWeights | None = None) -> float:
     """Combine normalized scores into a single relevance score."""
     w = weights or ScoringWeights()
