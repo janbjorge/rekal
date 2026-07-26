@@ -30,6 +30,29 @@ def resolve_readonly(db_path: str) -> bool:
     return Path(db_path).exists() and not os.access(db_path, os.W_OK)
 
 
+# Injection relevance floor, OFF by default. Hook injection with a weak match
+# is worse than none (a tangential brief sends the model on extra verification
+# work), but the cut-over point must be calibrated against benchmark data
+# before a nonzero default ships.
+DEFAULT_MIN_RELEVANCE = 0.0
+
+
+def resolve_min_relevance(file_config: dict[str, float] | None = None) -> float:
+    """Relevance floor for hook injection: env, then config file, then off.
+
+    ``REKAL_MIN_RELEVANCE`` (env) wins so benchmark arms can sweep the floor
+    without touching the config file; an unparseable value falls through
+    rather than crashing the per-turn hook.
+    """
+    env = os.environ.get("REKAL_MIN_RELEVANCE")
+    if env is not None:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    return (file_config or {}).get("min_relevance", DEFAULT_MIN_RELEVANCE)
+
+
 def find_config_file(start: Path | None = None) -> Path | None:
     """Look for ``.rekal/config.yml`` in *start* (default: CWD)."""
     candidate = (start or Path.cwd()).resolve() / ".rekal" / "config.yml"
@@ -41,6 +64,7 @@ class FileScoring(BaseModel):
     w_vec: float | None = None
     w_recency: float | None = None
     half_life: float | None = None
+    min_relevance: float | None = None
 
 
 class FileConfig(BaseModel):

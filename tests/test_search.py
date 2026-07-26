@@ -106,3 +106,25 @@ async def test_build_context_min_score(db: SqliteDatabase) -> None:
     dropped = await db.build_context("parsers", weights=ScoringWeights(), min_score=1.0)
     assert len(kept.memories) > 0
     assert dropped.memories == []
+
+
+async def test_search_min_relevance_excludes_weak_matches(db: SqliteDatabase) -> None:
+    await db.store("Relevance gate memory about interpreters")
+    # relevance is capped below 1.0 for any non-identical text (vec distance
+    # is nonzero and the fts sigmoid never reaches 1), so a floor of 1.0
+    # suppresses everything while 0.0 keeps all candidates.
+    all_hits = await db.search("interpreters", weights=ScoringWeights(), min_relevance=0.0)
+    no_hits = await db.search("interpreters", weights=ScoringWeights(), min_relevance=1.0)
+    assert len(all_hits) > 0
+    assert no_hits == []
+
+
+async def test_search_min_relevance_ignores_recency_weight(db: SqliteDatabase) -> None:
+    # A recency-heavy weight config cannot push a weak match past the gate:
+    # the floor reads only the fts+vec components, freshness buys nothing.
+    await db.store("Recency-proof gate memory about assemblers")
+    recency_heavy = ScoringWeights(w_fts=0.05, w_vec=0.05, w_recency=0.9)
+    hits = await db.search("assemblers", weights=recency_heavy, min_relevance=0.0)
+    assert len(hits) > 0
+    gated = await db.search("assemblers", weights=recency_heavy, min_relevance=1.0)
+    assert gated == []

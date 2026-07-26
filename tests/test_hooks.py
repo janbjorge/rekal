@@ -211,3 +211,24 @@ def test_non_memory_paths_pass_through(command: str, path: str) -> None:
     result = runner.invoke(app, ["hook", command], input=tool_call(path) if path else "{}")
     assert result.exit_code == 0
     assert result.stdout.strip() == ""
+
+
+def test_user_prompt_min_relevance_gate_injects_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A matching memory exists, but the relevance floor gates it out: the
+    # readonly payload must be EMPTY (degrade to cold), not a weak-match block.
+    monkeypatch.setenv("REKAL_READONLY", "1")
+    monkeypatch.setenv("REKAL_MIN_RELEVANCE", "1.0")
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        asyncio.run(make_db(db_path, ("Ruff over Black for formatting", None)))
+
+        with patch_embedder:
+            result = runner.invoke(
+                app,
+                ["--db", db_path, "hook", "user-prompt-submit"],
+                input=json.dumps({"prompt": "formatting"}),
+            )
+        assert result.exit_code == 0
+        assert result.stdout.strip() == ""

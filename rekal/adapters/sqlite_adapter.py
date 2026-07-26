@@ -13,7 +13,7 @@ import aiosqlite
 import sqlite_vec
 
 from rekal.models import ContextResult, HealthReport, MemoryResult
-from rekal.scoring import RawScores, ScoringWeights, combine_scores
+from rekal.scoring import RawScores, ScoringWeights, combine_scores, relevance
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -353,11 +353,14 @@ class SqliteDatabase:
         project: str | None = None,
         weights: ScoringWeights,
         min_score: float = 0.0,
+        min_relevance: float = 0.0,
     ) -> list[MemoryResult]:
         """Hybrid FTS + vector + recency search.
 
-        ``min_score`` is an inclusive floor: rows scoring exactly at it
-        survive; only strictly lower scores are dropped.
+        ``min_score`` is an inclusive floor on the hybrid score;
+        ``min_relevance`` is an inclusive floor on the recency-free relevance
+        (see :func:`rekal.scoring.relevance`). Rows scoring exactly at a
+        floor survive; only strictly lower scores are dropped.
         """
         embedding = self.embed(query)
 
@@ -413,7 +416,7 @@ class SqliteDatabase:
                 recency_days=max(0.0, float(days)),
             )
             score = combine_scores(raw, weights)
-            if score < min_score:
+            if score < min_score or relevance(raw, weights) < min_relevance:
                 continue
             mem.score = score
             scored.append((score, mem))
