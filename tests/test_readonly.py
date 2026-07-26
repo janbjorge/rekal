@@ -247,12 +247,25 @@ def test_render_golden_payload() -> None:
         "Facts below were verified against this codebase when learned; file:line "
         "anchors mark where. Build on them directly — cite anchors instead of "
         "re-opening files to re-check what a memory already states. Read code "
-        "only for what these do not cover.\n"
+        "only for what these do not cover. "
+        "If you need stored knowledge on a topic this block does not cover, run "
+        "`rekal recall --query '<topic terms>'` in the shell before re-deriving "
+        "it from source.\n"
         "\n"
         "### [dependency-injection] (as of 2026-07-24)\n"
         "Dep cache key is (models.py:63 cache_key)."
     )
     assert out == expected
+
+
+def test_render_escalation_hint_readonly_only() -> None:
+    # The CLI escalation hint targets sessions with no rekal tools mounted;
+    # write-mode sessions are pointed at memory_build_context by their
+    # directive instead.
+    ro = render_recall([mem("A fact")], project=None, fmt="text", readonly=True)
+    rw = render_recall([mem("A fact")], project=None, fmt="text", readonly=False)
+    assert "rekal recall --query" in ro
+    assert "rekal recall --query" not in rw
 
 
 async def test_run_recall_readonly_env_suppresses_ids(
