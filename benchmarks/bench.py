@@ -27,6 +27,7 @@ Everything is written under benchmarks/ (dbs/, config/, results/), all
 gitignored.
 """
 
+import fcntl
 import hashlib
 import json
 import re
@@ -1025,6 +1026,16 @@ def judge(
     rows = load_jsonl(RESULTS / f"{repo}.jsonl")
     qmap = {q["pair"]: q for q in load_questions(repo)}
     out = RESULTS / f"{repo}.judged.jsonl"
+    # Exclusive lock for the whole judge run: judge rewrites the file from
+    # scratch, so a second concurrent judge (e.g. a stuck retry loop waking
+    # up) interleaves writes and tears it — which happened once and cost a
+    # manual parse/dedupe repair. Held (not closed) until the run ends;
+    # process exit releases it even on crash.
+    lock = out.with_suffix(".lock").open("w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit(f"ERROR: another judge is already writing {out}; refusing to tear it.")
     done: dict[tuple[str, str, str, int], dict] = {}
     if resume and out.exists():
         for j in load_jsonl(out):
@@ -1042,7 +1053,35 @@ def judge(
             f.write(json.dumps(r) + "\n")
             f.flush()
             print(f"[{i}/{len(rows)}] {r['pair']}/{r['role']} {r['arm']}: score {score}")
+    lock.close()
     print(f"wrote {out}")
+
+
+@app.command()
+def answers(
+    repo: str,
+    pair: str | None = typer.Option(None, help="only this pair"),
+    role: str | None = typer.Option(None, help="only this role (seed/heldout)"),
+    arm: str | None = typer.Option(None, help="only this arm"),
+) -> None:
+    """Print recorded answers for spot-reading ($0).
+
+    The judge grades whatever landed in the row's `answer` field; when a run's
+    final message is meta-commentary instead of an answer, its 0 looks like a
+    quality failure in aggregate. This is the window for telling those apart —
+    read what was actually graded before trusting (or fixing) a low score.
+    """
+    rows = load_jsonl(RESULTS / f"{repo}.jsonl")
+    shown = 0
+    for r in rows:
+        if (pair and r["pair"] != pair) or (role and r["role"] != role):
+            continue
+        if arm and r["arm"] != arm:
+            continue
+        shown += 1
+        print(f"\n=== {r['pair']}/{r['role']} {r['arm']} #{r['run']} ===")
+        print(r.get("answer") or "(empty answer)")
+    print(f"\n{shown}/{len(rows)} answers shown")
 
 
 # --------------------------------------------------------------------------- #
@@ -1095,6 +1134,16 @@ def load_aggregate_rows(repo: str, allow_unjudged: bool) -> list[dict]:
         )
     path = judged if judged.exists() else RESULTS / f"{repo}.jsonl"
     rows = load_jsonl(path)
+    if path == judged:
+        recorded = len(load_jsonl(RESULTS / f"{repo}.jsonl"))
+        if len(rows) < recorded and not allow_unjudged:
+            # A partially judged file silently biases the quality columns
+            # toward whatever the judge got to first.
+            sys.exit(
+                f"ERROR: {len(rows)} judged rows < {recorded} recorded runs — "
+                f"judging is incomplete. Run `judge {repo} --resume`, or pass "
+                "--allow-unjudged."
+            )
     contaminated = sum(1 for r in rows if r.get("contaminated"))
     if contaminated:
         print(
