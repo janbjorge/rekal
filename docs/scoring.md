@@ -180,6 +180,7 @@ scoring:
   w_vec: 0.3
   w_recency: 0.1
   half_life: 14.0
+  min_relevance: 0.0
 ```
 
 ---
@@ -220,6 +221,17 @@ Set team-wide defaults in `.rekal/config.yml` (committed).
   layer); results scoring below it are dropped before the limit cut. The
   MCP tools and hook injection default to `min_score=0.25` so weak hits
   don't ride along into context. Pass `min_score=0.0` to see everything.
+- **Injection gate (`min_relevance`).** `search` also takes
+  `min_relevance` (default 0.0, off), floored against the *recency-free*
+  relevance: `(w_fts × fts + w_vec × vec) / (w_fts + w_vec)`. Unlike
+  `min_score`, freshness cannot lift a weak match over this floor, and
+  normalizing by the fts+vec weight mass keeps the value meaningful under
+  any weight config. Only the hook-injection path applies it (config key
+  `scoring.min_relevance`, env `REKAL_MIN_RELEVANCE` wins): when every hit
+  falls below the floor the hook injects nothing, because benchmarking
+  showed an off-topic injected memory costs more than no memory at all.
+  Agent-initiated `memory_build_context` is not gated — an agent that asks
+  to see results gets them, scores included.
 - **Replaced rows never appear.** `memory_store(replaces=<old_id>)`
   deletes the old row outright; there is no superseded-but-lingering
   state.
