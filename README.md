@@ -76,7 +76,7 @@ claude plugin install rekal-skills@rekal
 <details>
 <summary><b>Why disable built-in memory, and what if I forget?</b></summary>
 
-**Why is this required?** Left enabled, Claude Code's built-in auto memory competes with rekal. It loads its own memory into the agent's context ([context layout](https://code.claude.com/docs/en/context-window)) and the agent favors it, writing to a flat file with no search, no deduplication, no ranking. Disabling it (`autoMemoryEnabled: false`, [settings docs](https://code.claude.com/docs/en/settings)) removes the competitor. The plugin's hooks then re-assert rekal: SessionStart restores the context injection auto memory normally provided, and UserPromptSubmit reinforces it every turn.
+**Why is this required?** Left enabled, Claude Code's built-in auto memory competes with rekal. It loads its own memory into the agent's context ([context layout](https://code.claude.com/docs/en/context-window)) and the agent favors it, writing everything to a flat file that cannot be searched, deduplicated, or ranked. Disabling it (`autoMemoryEnabled: false`, [settings docs](https://code.claude.com/docs/en/settings)) removes the competitor. The plugin's hooks then re-assert rekal: SessionStart establishes that memory lives in rekal, and UserPromptSubmit injects prompt-matched memories on every turn.
 
 **What if I forget?** The plugin's `block-memory-writes` and `redirect-memory-reads` hooks catch flat-file memory access (MEMORY.md/.txt, memories.*) and redirect the agent to rekal as a safety net, but it wastes turns hitting them. Disabling auto memory is cleaner.
 
@@ -91,8 +91,8 @@ claude plugin install rekal-skills@rekal
 
 | Hook | Event | What it does |
 |------|-------|-------------|
-| session-start | `SessionStart` | `rekal hook session-start` recalls recency-ordered memories in-process and injects them, plus a directive that memory lives only in rekal |
-| user-prompt-submit | `UserPromptSubmit` | `rekal hook user-prompt-submit` recalls memories matching the submitted prompt (hybrid search) and injects the top matches, plus the same directive, so recall follows what you just asked as context grows |
+| session-start | `SessionStart` | `rekal hook session-start` injects a directive that memory lives only in rekal. It deliberately injects no memories: with no prompt yet there is nothing to match against, and recency-ordered recall was usually the wrong topic |
+| user-prompt-submit | `UserPromptSubmit` | `rekal hook user-prompt-submit` recalls memories matching the submitted prompt (hybrid search, in-process) and injects the top matches under `## rekal memory`, so recall re-anchors to what you just asked on every turn |
 | pre-compact | `PreCompact` (auto) | Runs a subagent that saves durable facts to rekal before context is compacted, so nothing is lost to summarization |
 | session-end | `SessionEnd` | Runs a subagent that saves durable facts to rekal when the session ends |
 | block-memory-writes | `PreToolUse` on Edit/Write | Denies writes to flat-file memory (MEMORY.md/.txt, memories.*) with a reason redirecting to rekal tools |
@@ -223,6 +223,9 @@ cheap in the agent's context and leaves no ambiguity about which tool to call:
 
 Setting `REKAL_READONLY=1` in the server's environment registers only
 `memory_build_context`, for sessions that should recall but never write.
+In read-only sessions the injected memory block also points the agent at
+`rekal recall --query` in the shell, so it can pull stored knowledge
+mid-task without any MCP tool mounted.
 
 Admin operations live in the CLI, not the tool surface:
 
@@ -292,7 +295,16 @@ scoring:
   w_vec: 0.3
   w_recency: 0.1
   half_life: 14.0
+  min_relevance: 0.0   # hook-injection gate, see below
 ```
+
+**`min_relevance`** (default `0.0`, off; env `REKAL_MIN_RELEVANCE` overrides)
+gates what the recall hooks inject. It floors the *recency-free* part of the
+score (keywords + vectors only), so freshness can never push a weak match
+into your context: when the best hit falls below the floor, the hook injects
+nothing at all rather than a tangential memory. Experimental: benchmarking
+showed off-topic injection is worse than none, but the default stays off
+until the cut-over value is calibrated.
 
 </details>
 
@@ -315,7 +327,7 @@ Full ranking reference, covering normalization, candidate retrieval, weight reso
 
 ### Session starts with no memory injected
 
-The `SessionStart` and `UserPromptSubmit` hooks recall memory in-process (`rekal hook <event>`) and inject it, so memory should be present without the agent calling a tool. If nothing shows up, confirm `uv` is available to Claude Code's hook subprocesses, and that any `REKAL_PROJECT` / `REKAL_DB_PATH` you rely on is set where the hook subprocess sees it (shell or `settings.json` `env`, not the MCP `env` block). See [Recall hooks: environment scoping](#setup-for-claude-code).
+The `UserPromptSubmit` hook recalls memory in-process (`rekal hook user-prompt-submit`) and injects prompt-matched hits, so memory should be present without the agent calling a tool (`SessionStart` injects only a directive; memories arrive with your first prompt). If nothing shows up, confirm `uv` is available to Claude Code's hook subprocesses, and that any `REKAL_PROJECT` / `REKAL_DB_PATH` you rely on is set where the hook subprocess sees it (shell or `settings.json` `env`, not the MCP `env` block). See [Recall hooks: environment scoping](#setup-for-claude-code).
 
 ### Memories not being stored
 
@@ -350,7 +362,7 @@ rekal prune    # Bulk-delete memories by scope (dry-run unless --yes)
 Plugin (hooks + skills)
   │
   ├── hooks/hooks.json    ← wires each event to `uv run … rekal hook <event>`
-  │       SessionStart          → rekal hook session-start        (inject recency recall + directive)
+  │       SessionStart          → rekal hook session-start        (inject directive only)
   │       UserPromptSubmit      → rekal hook user-prompt-submit   (inject query recall + directive)
   │       PreCompact / SessionEnd → agent hooks that auto-persist durable facts
   │       PreToolUse Edit|Write → rekal hook block-memory-writes  (redirect MEMORY.md writes)
@@ -382,7 +394,7 @@ MCP Server (rekal)
 | What | Where | Why |
 |------|-------|-----|
 | "Memory lives in rekal, not files" | MCP server instructions + PreToolUse hooks (read + write) | Instructions guide, hooks enforce both directions |
-| "Call memory_build_context first" | SessionStart hook | Automatic, every session |
+| "Memories arrive by injection; recall more only if the block is missing" | SessionStart hook | Automatic, every session |
 | "Keep using rekal, don't drift" | UserPromptSubmit hook | Re-asserts every turn as context grows |
 | "How to recall/store/replace" | MCP server instructions | Always present next to the tools |
 | "Capture session knowledge" | rekal-save skill | Explicit trigger, detailed procedure |
