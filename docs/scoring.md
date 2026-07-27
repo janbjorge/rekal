@@ -230,7 +230,7 @@ Set team-wide defaults in `.rekal/config.yml` (committed).
   `scoring.min_relevance`, env `REKAL_MIN_RELEVANCE` wins): when every hit
   falls below the floor the hook injects nothing, because benchmarking
   showed an off-topic injected memory costs more than no memory at all.
-  Agent-initiated `memory_build_context` is not gated — an agent that asks
+  Agent-initiated `memory_build_context` is not gated: an agent that asks
   to see results gets them, scores included.
 - **Replaced rows never appear.** `memory_store(replaces=<old_id>)`
   deletes the old row outright; there is no superseded-but-lingering

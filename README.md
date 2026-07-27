@@ -76,7 +76,7 @@ claude plugin install rekal-skills@rekal
 <details>
 <summary><b>Why disable built-in memory, and what if I forget?</b></summary>
 
-**Why is this required?** Left enabled, Claude Code's built-in auto memory competes with rekal. It loads its own memory into the agent's context ([context layout](https://code.claude.com/docs/en/context-window)) and the agent favors it, writing to a flat file with no search, no deduplication, no ranking. Disabling it (`autoMemoryEnabled: false`, [settings docs](https://code.claude.com/docs/en/settings)) removes the competitor. The plugin's hooks then re-assert rekal: SessionStart establishes that memory lives in rekal, and UserPromptSubmit injects prompt-matched memories on every turn.
+**Why is this required?** Left enabled, Claude Code's built-in auto memory competes with rekal. It loads its own memory into the agent's context ([context layout](https://code.claude.com/docs/en/context-window)) and the agent favors it, writing everything to a flat file that cannot be searched, deduplicated, or ranked. Disabling it (`autoMemoryEnabled: false`, [settings docs](https://code.claude.com/docs/en/settings)) removes the competitor. The plugin's hooks then re-assert rekal: SessionStart establishes that memory lives in rekal, and UserPromptSubmit injects prompt-matched memories on every turn.
 
 **What if I forget?** The plugin's `block-memory-writes` and `redirect-memory-reads` hooks catch flat-file memory access (MEMORY.md/.txt, memories.*) and redirect the agent to rekal as a safety net, but it wastes turns hitting them. Disabling auto memory is cleaner.
 
@@ -302,7 +302,7 @@ scoring:
 gates what the recall hooks inject. It floors the *recency-free* part of the
 score (keywords + vectors only), so freshness can never push a weak match
 into your context: when the best hit falls below the floor, the hook injects
-nothing at all rather than a tangential memory. Experimental — benchmarking
+nothing at all rather than a tangential memory. Experimental: benchmarking
 showed off-topic injection is worse than none, but the default stays off
 until the cut-over value is calibrated.
 
@@ -327,7 +327,7 @@ Full ranking reference, covering normalization, candidate retrieval, weight reso
 
 ### Session starts with no memory injected
 
-The `UserPromptSubmit` hook recalls memory in-process (`rekal hook user-prompt-submit`) and injects prompt-matched hits, so memory should be present without the agent calling a tool (`SessionStart` injects only a directive — memories arrive with your first prompt). If nothing shows up, confirm `uv` is available to Claude Code's hook subprocesses, and that any `REKAL_PROJECT` / `REKAL_DB_PATH` you rely on is set where the hook subprocess sees it (shell or `settings.json` `env`, not the MCP `env` block). See [Recall hooks: environment scoping](#setup-for-claude-code).
+The `UserPromptSubmit` hook recalls memory in-process (`rekal hook user-prompt-submit`) and injects prompt-matched hits, so memory should be present without the agent calling a tool (`SessionStart` injects only a directive; memories arrive with your first prompt). If nothing shows up, confirm `uv` is available to Claude Code's hook subprocesses, and that any `REKAL_PROJECT` / `REKAL_DB_PATH` you rely on is set where the hook subprocess sees it (shell or `settings.json` `env`, not the MCP `env` block). See [Recall hooks: environment scoping](#setup-for-claude-code).
 
 ### Memories not being stored
 
