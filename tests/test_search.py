@@ -116,6 +116,8 @@ async def test_search_min_relevance_excludes_weak_matches(db: SqliteDatabase) ->
     all_hits = await db.search("interpreters", weights=ScoringWeights(), min_relevance=0.0)
     no_hits = await db.search("interpreters", weights=ScoringWeights(), min_relevance=1.0)
     assert len(all_hits) > 0
+    assert all_hits[0].relevance is not None
+    assert 0.0 < all_hits[0].relevance < 1.0
     assert no_hits == []
 
 

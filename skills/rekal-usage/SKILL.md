@@ -71,9 +71,9 @@ stops surfacing in recall.
 ```python
 memory_store(
     content="Ruff > Black. Faster + handles import sort.",
-    tags=["formatting", "ruff"],   # 2-4 specific tags. Not "code" or "project".
-    project="backend",             # Set if project-specific. Omit for global knowledge.
-    replaces="mem_abc123",         # ID from recall results when updating a topic.
+    tags=["formatting", "ruff"],  # 2-4 specific tags. Not "code" or "project".
+    project="backend",  # Set if project-specific. Omit for global knowledge.
+    replaces="mem_abc123",  # ID from recall results when updating a topic.
 )
 ```
 

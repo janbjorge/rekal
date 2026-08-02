@@ -636,7 +636,7 @@ def run_claude_once(
     return None
 
 
-def one_run(repo: str, arm: str, q: dict, role: str, run: int, pos: str) -> RunResult:
+def one_run(repo: str, arm: str, q: dict, role: str, *, run: int, pos: str) -> RunResult:
     """Execute one headless question, stream its tool pulse, print a result line."""
     rr = RunResult(repo=repo, arm=arm, pair=q["pair"], role=role, run=run, prov=provenance())
     # Every arm gets the bare question — the trust framing lives inside the
@@ -782,6 +782,7 @@ def arms_need_seed(arm_list: list[str]) -> bool:
 @app.command()
 def run(
     repo: str,
+    *,
     n: int = typer.Option(3, help="runs per (question, arm)"),
     arms: str = typer.Option(",".join(DEFAULT_ARMS), help="comma list of arms"),
     roles: str = typer.Option(",".join(Role), help="comma list: seed,heldout"),
@@ -851,7 +852,7 @@ def run(
                     if rr := prior.get((q["pair"], role, arm, i)):
                         by_arm.setdefault(arm, []).append(rr)
                         continue
-                    rr = one_run(repo, arm, q, role, i, f"[{done}/{total}]")
+                    rr = one_run(repo, arm, q, role, run=i, pos=f"[{done}/{total}]")
                     rr.prov = dict(prov)
                     f.write(json.dumps(rr.__dict__) + "\n")
                     f.flush()
@@ -1257,6 +1258,7 @@ def probe(repo: str) -> None:
 @app.command()
 def pipeline(
     repo: str,
+    *,
     n: int = typer.Option(3, help="runs per (question, arm)"),
     arms: str = typer.Option(",".join(DEFAULT_ARMS), help="comma list of arms"),
     roles: str = typer.Option(",".join(Role), help="comma list: seed,heldout"),

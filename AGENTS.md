@@ -64,6 +64,7 @@ class SqliteDatabase:
     db: aiosqlite.Connection
     embed: EmbeddingFunc
 
+
 # Wrong
 class SqliteDatabase:
     def __init__(self, db, embed):
@@ -80,6 +81,7 @@ For values that might look like globals, use functions or dataclass fields inste
 # Correct
 def default_db_path() -> str:
     return str(Path.home() / ".rekal" / "memory.db")
+
 
 # Wrong
 _DEFAULT_DB_PATH = str(Path.home() / ".rekal" / "memory.db")

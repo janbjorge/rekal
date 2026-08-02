@@ -79,8 +79,8 @@ Per candidate that passed dedup with no match:
 ```python
 memory_store(
     content="<self-contained content: what AND why>",
-    tags=["<tag1>", "<tag2>"],    # 2-4 specific tags. Not "code", "project", "general".
-    project="<name>",             # Set if project-specific. Omit for global knowledge.
+    tags=["<tag1>", "<tag2>"],  # 2-4 specific tags. Not "code", "project", "general".
+    project="<name>",  # Set if project-specific. Omit for global knowledge.
 )
 ```
 

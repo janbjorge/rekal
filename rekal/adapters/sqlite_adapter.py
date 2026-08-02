@@ -416,9 +416,11 @@ class SqliteDatabase:
                 recency_days=max(0.0, float(days)),
             )
             score = combine_scores(raw, weights)
-            if score < min_score or relevance(raw, weights) < min_relevance:
+            content_relevance = relevance(raw, weights)
+            if score < min_score or content_relevance < min_relevance:
                 continue
             mem.score = score
+            mem.relevance = content_relevance
             scored.append((score, mem))
 
         scored.sort(key=lambda x: x[0], reverse=True)

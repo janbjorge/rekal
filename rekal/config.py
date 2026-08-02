@@ -30,15 +30,15 @@ def resolve_readonly(db_path: str) -> bool:
     return Path(db_path).exists() and not os.access(db_path, os.W_OK)
 
 
-# Injection relevance floor, OFF by default. Hook injection with a weak match
-# is worse than none (a tangential brief sends the model on extra verification
-# work), but the cut-over point must be calibrated against benchmark data
-# before a nonzero default ships.
+# Injection relevance floor, OFF by default. Calibration against pydantic and
+# sqlmodel found harmful and useful recalls with overlapping relevance scores,
+# so no nonzero global floor improved pooled median cost. Revisit after the
+# benchmark matrix covers more repositories (benchmarks/CALIBRATION.md).
 DEFAULT_MIN_RELEVANCE = 0.0
 
 
 def resolve_min_relevance(file_config: dict[str, float] | None = None) -> float:
-    """Relevance floor for hook injection: env, then config file, then off.
+    """Relevance floor for hook injection: env, then config file, then default.
 
     ``REKAL_MIN_RELEVANCE`` (env) wins so benchmark arms can sweep the floor
     without touching the config file; an unparseable value falls through

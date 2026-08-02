@@ -25,6 +25,7 @@ class MemoryResult(BaseModel):
     created_at: str = ""
     updated_at: str = ""
     score: float | None = None
+    relevance: float | None = None
 
     def compact(self) -> CompactMemory:
         return CompactMemory(

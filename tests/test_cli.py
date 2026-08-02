@@ -105,6 +105,7 @@ async def test_run_recall_query(capsys: pytest.CaptureFixture[str]) -> None:
         data = json.loads(capsys.readouterr().out)
         assert isinstance(data, list)
         assert any(m["content"] == "Ruff over Black for formatting" for m in data)
+        assert all(m["relevance"] is not None for m in data)
 
 
 async def test_run_recall_project_scope(capsys: pytest.CaptureFixture[str]) -> None:

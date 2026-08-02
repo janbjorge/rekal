@@ -302,9 +302,10 @@ scoring:
 gates what the recall hooks inject. It floors the *recency-free* part of the
 score (keywords + vectors only), so freshness can never push a weak match
 into your context: when the best hit falls below the floor, the hook injects
-nothing at all rather than a tangential memory. Experimental: benchmarking
-showed off-topic injection is worse than none, but the default stays off
-until the cut-over value is calibrated.
+nothing at all rather than a tangential memory. Benchmarking confirmed that
+off-topic injection can be worse than none, but harmful and useful recalls
+overlapped at the same relevance scores. The calibrated global default
+therefore stays off; see [the calibration](benchmarks/CALIBRATION.md).
 
 </details>
 

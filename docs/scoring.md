@@ -84,8 +84,8 @@ days since `created_at`.
 ### `combine_scores(raw, weights)`
 
 ```python
-fts     = normalize_fts(raw.fts_score)
-vec     = normalize_vec(raw.vec_score)
+fts = normalize_fts(raw.fts_score)
+vec = normalize_vec(raw.vec_score)
 recency = normalize_recency(raw.recency_days, w.half_life)
 return w.w_fts * fts + w.w_vec * vec + w.w_recency * recency
 ```
@@ -106,8 +106,8 @@ scores every survivor in Python.
    `[]` immediately.
 4. **Fetch + filter**: for each candidate, `db.get(id)`, then drop in
    Python on `project` (strict equality, see [gotchas](#gotchas)).
-5. **Score**: `combine_scores`; drop rows below `min_score`; write
-   `mem.score`.
+5. **Score**: compute the hybrid score and recency-free relevance; drop rows
+   below either active floor; write `mem.score` and `mem.relevance`.
 6. **Sort + slice**: descending by score, take `limit`.
 
 ### Why `k = limit × 3`
@@ -230,6 +230,9 @@ Set team-wide defaults in `.rekal/config.yml` (committed).
   `scoring.min_relevance`, env `REKAL_MIN_RELEVANCE` wins): when every hit
   falls below the floor the hook injects nothing, because benchmarking
   showed an off-topic injected memory costs more than no memory at all.
+  The global default remains 0.0 after calibration: harmful and useful
+  recalls overlapped, and no tested nonzero floor improved pooled median
+  cost. See [`benchmarks/CALIBRATION.md`](../benchmarks/CALIBRATION.md).
   Agent-initiated `memory_build_context` is not gated: an agent that asks
   to see results gets them, scores included.
 - **Replaced rows never appear.** `memory_store(replaces=<old_id>)`
