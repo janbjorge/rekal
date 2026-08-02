@@ -154,7 +154,7 @@ memories = false
 
 ## Setup for OpenCode
 
-One step. OpenCode has no built-in memory system, so rekal plugs in cleanly with no conflicts.
+One step. OpenCode has no built-in memory system, so there is nothing to disable.
 
 Add to `opencode.jsonc` in your project root ([OpenCode MCP docs](https://opencode.ai/docs/mcp-servers/)):
 
@@ -193,7 +193,7 @@ pip install -U rekal
 uv tool upgrade rekal
 ```
 
-Restart your agent so it relaunches the server. The SQLite schema **migrates automatically** on the next start: new columns are added in place and existing memories are preserved. No manual migration step, no data loss. To start fresh instead, delete `~/.rekal/memory.db` (rekal recreates it on next run).
+Restart your agent so it relaunches the server. The SQLite schema migrates automatically on the next start: new columns are added in place and existing memories are preserved, so you never run a migration by hand. To start fresh instead, delete `~/.rekal/memory.db` (rekal recreates it on next run).
 
 ### Update the Claude Code plugin
 
@@ -262,7 +262,7 @@ on first open, keeping content and embeddings.
 
 ### Embeddings
 
-rekal uses [fastembed](https://github.com/qdrant/fastembed) with `BAAI/bge-small-en-v1.5` (384 dimensions). Runs locally via ONNX, with no API calls and no network. The model downloads once on first use (~50MB) and is cached.
+rekal uses [fastembed](https://github.com/qdrant/fastembed) with `BAAI/bge-small-en-v1.5` (384 dimensions). It runs locally via ONNX and makes no network calls. The model downloads once on first use (~50MB) and is cached.
 
 ### Search
 
@@ -314,7 +314,7 @@ Full ranking reference, covering normalization, candidate retrieval, weight reso
 ### Why SQLite?
 
 - One file you can copy, back up, version-control, or delete to start fresh
-- Nothing to configure: no daemon, no port, no connection string
+- There is no daemon, port, or connection string to configure
 - FTS5 gives BM25 ranking without an external search engine
 - sqlite-vec runs vector search in the same process, so there is no separate vector DB
 - Queries hit local disk and return in under a millisecond
