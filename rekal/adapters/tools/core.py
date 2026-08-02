@@ -1,14 +1,17 @@
 """The MCP tool surface: recall (build_context), store, delete."""
 
+from __future__ import annotations
+
 from typing import Annotated
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from pydantic import Field
 
+from rekal.adapters.app_context import AppContext
 from rekal.models import CompactContext
 
 
-def resolve_project(ctx: Context, project: str | None) -> str | None:
+def resolve_project(ctx: Context[AppContext, object], project: str | None) -> str | None:
     """Return explicit project if given, otherwise fall back to session default."""
     if project is not None:
         return project
@@ -16,7 +19,7 @@ def resolve_project(ctx: Context, project: str | None) -> str | None:
 
 
 async def memory_build_context(
-    ctx: Context,
+    ctx: Context[AppContext, object],
     query: Annotated[str, Field(description="Query to recall memories for")],
     project: Annotated[str | None, Field(description="Filter to this project")] = None,
     limit: Annotated[int, Field(description="Max memories to include")] = 10,
@@ -41,7 +44,7 @@ async def memory_build_context(
 
 
 async def memory_store(
-    ctx: Context,
+    ctx: Context[AppContext, object],
     content: Annotated[
         str,
         Field(
@@ -76,7 +79,7 @@ async def memory_store(
 
 
 async def memory_delete(
-    ctx: Context,
+    ctx: Context[AppContext, object],
     memory_id: Annotated[str, Field(description="ID of the memory to delete")],
 ) -> str:
     """Delete a memory by ID."""
@@ -89,7 +92,7 @@ async def memory_delete(
     return f"Memory {memory_id} not found"
 
 
-def register(mcp: FastMCP, *, readonly: bool) -> None:
+def register(mcp: MCPServer[AppContext], *, readonly: bool) -> None:
     """Attach the tool surface to a server; readonly exposes recall only."""
     mcp.tool()(memory_build_context)
     if readonly:

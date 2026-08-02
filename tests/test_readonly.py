@@ -16,10 +16,11 @@ from typing import cast
 
 import aiosqlite
 import pytest
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from rekal.__main__ import RECALL_BUDGET_CHARS, render_recall, run_recall
-from rekal.adapters.mcp_adapter import AppContext, create_server, lifespan
+from rekal.adapters.app_context import AppContext
+from rekal.adapters.mcp_adapter import create_server, lifespan
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.adapters.tools.core import memory_build_context, memory_delete, memory_store
 from rekal.config import resolve_readonly
@@ -30,9 +31,9 @@ from .conftest import deterministic_embed
 from .test_core_tools import FakeContext, FakeRequestContext
 
 
-def none_ctx() -> Context:
+def none_ctx() -> Context[AppContext, object]:
     return cast(
-        "Context",
+        "Context[AppContext, object]",
         FakeContext(
             request_context=FakeRequestContext(
                 lifespan_context=AppContext(db=None, weights=ScoringWeights())
