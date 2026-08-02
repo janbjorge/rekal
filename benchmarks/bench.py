@@ -526,6 +526,11 @@ def _pulse(name: str, detail: str, root: Path) -> str:
 # 30 runs into a 180-run matrix must not abort the whole thing.
 RETRIES = 3
 
+# Quality-signal saturation: if score=2 exceeds this share on a large enough
+# sample, aggregate/judge warn that parity checks are weak.
+SCORE2_SATURATION = 0.95
+SCORE2_SATURATION_MIN_N = 10
+
 T = TypeVar("T")
 
 
@@ -955,12 +960,25 @@ def learn(repo: str) -> None:
 # judge — score each answer 0-2 against the real source
 # --------------------------------------------------------------------------- #
 GRADER = (
-    "You are grading an answer about the {repo} codebase (checked out in the "
-    "current directory; read it to verify). Question:\n{q}\n\nAnswer under "
-    "review:\n{a}\n\nScore the answer's correctness and completeness 0-2: "
-    "0 = wrong/empty, 1 = partially correct or missing key detail, 2 = correct "
-    "and complete. Verify claims against the actual source. Output ONLY JSON: "
-    '{{"score": <0|1|2>, "reason": "<one sentence>"}}'
+    "You are a STRICT source-verifying grader for the {repo} codebase "
+    "(checked out in the current directory). Read the source BEFORE scoring; "
+    "do not trust the answer's line numbers or mechanism claims.\n\n"
+    "Question:\n{q}\n\n"
+    "Answer under review:\n{a}\n\n"
+    "Pick the LOWEST score that applies:\n"
+    "0 = empty/refusal, OR invents a mechanism that contradicts the source, "
+    "OR answers a different question, OR most material claims are wrong.\n"
+    "1 = main idea is right but incomplete (missing a key step/branch/"
+    "mechanism the question asked about), OR one material factual error, OR "
+    "correct-sounding prose that you did not verify against the checkout.\n"
+    "2 = EVERY clause of the question is answered, EVERY material claim was "
+    "verified against the checkout, and there are NO material factual errors. "
+    "Length and confidence do not raise the score.\n\n"
+    "Tie-break: unsure between 1 and 2 -> 1; between 0 and 1 -> 0. A long "
+    "fluent answer with one unverified or wrong detail is a 1, not a 2.\n\n"
+    "Output ONLY JSON: "
+    '{{"score": <0|1|2>, "reason": "<one sentence naming the deciding flaw '
+    'or the verified key claims>"}}'
 )
 
 
@@ -980,6 +998,44 @@ def parse_verdict(stdout: str) -> tuple[int, str]:
         return int(v.get("score", 0)), v.get("reason", "")
     except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
         return 0, "unparseable"
+
+
+def print_score_dist(scores: list[int], *, label: str) -> None:
+    """Print 0/1/2 histogram; warn when score=2 dominates a large sample."""
+    dist = {s: scores.count(s) for s in (0, 1, 2)}
+    n = len(scores) or 1
+    print(
+        f"{label}: 0={dist[0]} ({100 * dist[0] / n:.0f}%) "
+        f"1={dist[1]} ({100 * dist[1] / n:.0f}%) "
+        f"2={dist[2]} ({100 * dist[2] / n:.0f}%)"
+    )
+    if dist[2] / n > SCORE2_SATURATION and n >= SCORE2_SATURATION_MIN_N:
+        print(
+            "WARNING: score=2 exceeds 95% - rubric may still be saturated; "
+            "inspect score_reason samples before trusting quality parity."
+        )
+
+
+def row_key(r: dict) -> tuple[str, str, str, int]:
+    return (r["pair"], r["role"], r["arm"], r["run"])
+
+
+def select_judge_rows(
+    rows: list[dict],
+    *,
+    pair_set: set[str] | None,
+    role_list: list[str],
+    arm_list: list[str],
+    limit: int | None,
+) -> list[dict]:
+    selected = [
+        r
+        for r in rows
+        if (pair_set is None or r["pair"] in pair_set)
+        and r["role"] in role_list
+        and r["arm"] in arm_list
+    ]
+    return selected if limit is None else selected[:limit]
 
 
 def judge_one(repo: str, prompt: str) -> tuple[int, str]:
@@ -1027,35 +1083,78 @@ def judge_one(repo: str, prompt: str) -> tuple[int, str]:
 @app.command()
 def judge(
     repo: str,
-    resume: bool = typer.Option(False, help="skip rows already in REPO.judged.jsonl"),
+    *,
+    resume: bool = typer.Option(False, help="skip rows already in the output judged file"),
+    pairs: str | None = typer.Option(None, help="comma list of pair names (default: all)"),
+    roles: str = typer.Option(",".join(Role), help="comma list: seed,heldout"),
+    arms: str = typer.Option(",".join(DEFAULT_ARMS), help="comma list of arms"),
+    limit: int | None = typer.Option(None, help="grade at most N matching rows (smoke)"),
+    out: str | None = typer.Option(
+        None,
+        help="output path (default: results/REPO.judged.jsonl). Required when filtering.",
+    ),
 ) -> None:
     """Grade every recorded answer 0-2 against the real source.
 
     Guards the headline claim: a warm run that spends less is only a win if it
-    answered as well. Writes REPO.judged.jsonl.
+    answered as well. Writes REPO.judged.jsonl by default.
+
+    Filtered runs (``--pairs`` / ``--roles`` / ``--arms`` / ``--limit``) must
+    pass ``--out`` so a partial regrade cannot silently replace the full
+    judged matrix with a slice.
     """
     ensure_repo(repo)
     rows = load_jsonl(RESULTS / f"{repo}.jsonl")
     qmap = {q["pair"]: q for q in load_questions(repo)}
-    out = RESULTS / f"{repo}.judged.jsonl"
+    pair_set = {p.strip() for p in pairs.split(",")} if pairs else None
+    role_list = [r.strip() for r in roles.split(",") if r.strip()]
+    arm_list = [a.strip() for a in arms.split(",") if a.strip()]
+    default_roles = ",".join(Role)
+    default_arms = ",".join(DEFAULT_ARMS)
+    filtered = (
+        pair_set is not None or roles != default_roles or arms != default_arms or limit is not None
+    )
+    if filtered and out is None:
+        sys.exit(
+            "filtered judge requires --out PATH so a slice cannot overwrite "
+            f"results/{repo}.judged.jsonl"
+        )
+    out_path = Path(out) if out is not None else RESULTS / f"{repo}.judged.jsonl"
     done: dict[tuple[str, str, str, int], dict] = {}
-    if resume and out.exists():
-        for j in load_jsonl(out):
-            done[(j["pair"], j["role"], j["arm"], j["run"])] = j
-        print(f"resume: {len(done)} judged rows will be skipped")
-    with out.open("w") as f:
+    if out_path.exists():
+        for j in load_jsonl(out_path):
+            done[row_key(j)] = j
+        if resume:
+            print(f"resume: {len(done)} judged rows will be skipped")
+        elif filtered:
+            print(f"merge: keeping {len(done)} prior judged rows outside the filter")
+
+    selected = select_judge_rows(
+        rows, pair_set=pair_set, role_list=role_list, arm_list=arm_list, limit=limit
+    )
+    fresh_scores: list[int] = []
+    graded_keys = {row_key(r) for r in selected}
+    write_all = not filtered or out_path.exists() or out_path == RESULTS / f"{repo}.judged.jsonl"
+    with out_path.open("w") as f:
         for i, r in enumerate(rows, start=1):
-            key = (r["pair"], r["role"], r["arm"], r["run"])
-            if prior := done.get(key):
+            key = row_key(r)
+            if key not in graded_keys:
+                if write_all:
+                    f.write(json.dumps(done.get(key, r)) + "\n")
+                continue
+            if resume and (prior := done.get(key)) is not None:
                 f.write(json.dumps(prior) + "\n")
+                if "score" in prior:
+                    fresh_scores.append(prior["score"])
                 continue
             question = qmap[r["pair"]][r["role"]]
             score, reason = judge_one(repo, GRADER.format(repo=repo, q=question, a=r["answer"]))
             r["score"], r["score_reason"] = score, reason
             f.write(json.dumps(r) + "\n")
             f.flush()
+            fresh_scores.append(score)
             print(f"[{i}/{len(rows)}] {r['pair']}/{r['role']} {r['arm']}: score {score}")
-    print(f"wrote {out}")
+    print_score_dist(fresh_scores, label=f"wrote {out_path}  score dist (this run)")
 
 
 # --------------------------------------------------------------------------- #
@@ -1202,6 +1301,9 @@ def aggregate(
     for r in rows:
         pools.add(r)
     print_pair_table(repo, sorted({r["pair"] for r in rows}), pools)
+    graded = [r["score"] for r in rows if "score" in r]
+    if graded:
+        print_score_dist(graded, label="\nscore dist")
     verdicts = [v for role in Role if (v := role_verdict(role, pools)) is not None]
     print(f"\nHEADLINE {repo}: " + " | ".join(verdicts))
     if any("LOSES" in v or "INCONCLUSIVE" in v for v in verdicts):

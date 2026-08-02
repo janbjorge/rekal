@@ -31,6 +31,26 @@ MCP Client
 - The MCP surface is deliberately minimal (3 tools). Admin operations (health, export, prune, recall) belong in the CLI (`rekal/__main__.py`), not new MCP tools.
 - **No dynamic SQL.** SQL strings must be static literals. No f-strings, no string concatenation, no `%` formatting to build queries. Use subqueries and parameterized `?` placeholders instead.
 
+### Re-expansion bar
+
+Do not restore conversations, memory links, scratch/TTL, memory types, access
+counters, or extra MCP tools because they sound useful. Earlier versions
+carried all of that; benchmarks showed the structure cost tokens (fatter
+payloads, fatter instructions) without earning them back. Prefer improving
+injection quality, bench coverage, and write hygiene (skills/CLI) first.
+
+Required evidence before any re-add:
+
+1. A measured arm loses (or is quality-suspect) for a reason attributable to
+   the missing structure — not a recall/ranking bug.
+2. A written hypothesis naming the one minimal piece to restore.
+3. Before/after `aggregate` on the same question matrix showing a net win
+   (cost and quality) from that piece alone.
+
+Non-goals unless that bar is met: conversation DAGs, conflict/link graphs,
+scratch tiers, typed memories, introspection tools on the MCP surface,
+weight parameters on tool schemas.
+
 ## Python style: modern, strict, no shortcuts
 
 ### Never use `Any`
@@ -64,7 +84,6 @@ class SqliteDatabase:
     db: aiosqlite.Connection
     embed: EmbeddingFunc
 
-
 # Wrong
 class SqliteDatabase:
     def __init__(self, db, embed):
@@ -81,7 +100,6 @@ For values that might look like globals, use functions or dataclass fields inste
 # Correct
 def default_db_path() -> str:
     return str(Path.home() / ".rekal" / "memory.db")
-
 
 # Wrong
 _DEFAULT_DB_PATH = str(Path.home() / ".rekal" / "memory.db")

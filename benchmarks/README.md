@@ -26,6 +26,9 @@ uv run bench.py run tinygrad
 
 # 5. grade every answer 0-2 against the real source (quality parity)
 uv run bench.py judge tinygrad
+#    smoke a slice without overwriting the full matrix:
+#    uv run bench.py judge tinygrad --pairs foo --limit 6 \
+#      --out results/tinygrad.judge-smoke.jsonl
 
 # 6. print median tokens + overhead/benefit/net decomposition
 uv run bench.py aggregate tinygrad
@@ -78,6 +81,7 @@ store tool exists to waste turns on) + the UserPromptSubmit recall hook.
 | `learn REPO`        | fresh seed DB -> answer seed Qs store-on -> freeze read-only  |
 | `run REPO`          | run every question x arm x N, append `results/REPO.jsonl`   |
 | `judge REPO`        | grade each answer 0-2 vs source -> `results/REPO.judged.jsonl` |
+|                     | filters (`--pairs/--roles/--arms/--limit`) require `--out`     |
 | `aggregate REPO`    | median tables + overhead/benefit/net + quality parity       |
 
 `run` options: `--n 3` (runs per question/arm), `--arms cold,warm-empty,warm-seed`,

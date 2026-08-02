@@ -124,9 +124,11 @@ Notes:
   replaced exploration instead of stacking on top of it.
 - turns to answer; tool-call breakdown.
 - **contamination flag**: any `mcp__rekal__*` tool_use in a measured arm.
-- **answer quality parity**: graded 0-2 by a source-verifying judge.
-  A cheap wrong answer is NOT a win; `aggregate` refuses ungraded data by
-  default and the HEADLINE downgrades cheap-but-worse to INCONCLUSIVE.
+- **answer quality parity**: graded 0-2 by a source-verifying judge with a
+  strict lowest-applicable rubric (tie-break toward the lower score). A
+  cheap wrong answer is NOT a win; `aggregate` refuses ungraded data by
+  default, prints the score distribution, warns when score=2 exceeds 95%,
+  and the HEADLINE downgrades cheap-but-worse to INCONCLUSIVE.
 
 ## Reproducibility
 

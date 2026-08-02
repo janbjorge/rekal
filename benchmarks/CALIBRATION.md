@@ -62,9 +62,14 @@ both repositories. Quality is the mean judge score.
 | 0.167 | above + pydantic config + sqlmodel init-lifecycle/select-dispatch | $0.117 | 1.992 |
 | 0.173 | above + pydantic serializers + sqlmodel relationship-instrumentation | $0.127 | 1.992 |
 
-The quality column is unchanged because the current judge is nearly
-saturated at score 2; it does not establish that gating is quality-neutral.
-Issue #78 tracks strengthening that signal.
+The quality column above came from the original judge, which was saturated
+(359/360 answers scored 2). It does not establish that gating is
+quality-neutral. Issue #78 replaced the rubric with a strict
+lowest-applicable one (tie-break toward the lower score). A 6-answer smoke
+regrade of `field-metadata/heldout` under the new rubric split 5x1 / 1x2 on
+answers the old judge had all scored 2 — the signal now discriminates, but
+the full matrix must be re-judged before any quality-parity claim (and thus
+any nonzero floor) is trusted.
 
 ## Recalibration bar
 
