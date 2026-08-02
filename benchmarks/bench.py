@@ -14,10 +14,17 @@ servers, recall delivered exclusively by the UserPromptSubmit hook. See
 Must run where `claude` is authenticated (headless `claude -p` returns
 "Not logged in" otherwise, and all token counts come back 0).
 
+Two tiers by cost:
+    Tier 1 ($0, default gate): `eval` scores retrieval quality offline.
+    Tier 2 ($, opt-in): `smoke` is a tiny paid slice; `pipeline` is the full,
+    expensive matrix run rarely for the headline cost verdict.
+
 Subcommands:
     setup                 clone pinned repos + build warm-arm config dirs
     learn REPO            run seed questions store-on, freeze + verify seed DB
     probe REPO            offline: memories recalled per question ($0)
+    eval REPO             offline: score right-subsystem recall, hit@1/MRR ($0)
+    smoke REPO            tiny paid spot-check: 1 pair, seed, cold vs warm-seed
     run REPO              run all questions across arms, N times each
     judge REPO            grade each answer 0-2 vs source (quality parity)
     aggregate REPO        cost-first medians + overhead/benefit decomposition
@@ -1310,6 +1317,51 @@ def aggregate(
         raise typer.Exit(code=1)
 
 
+def recall_json(seed: Path, repo: str, query: str) -> tuple[list[dict], int]:
+    """Recall one query against the frozen seed as parsed JSON, offline ($0).
+
+    Returns (memories, payload_bytes). Non-JSON or non-list stdout (a crashed
+    recall) degrades to [] so a broken recall reads as 'blind', never as an
+    error — the shared plumbing behind both `probe` and `eval`.
+    """
+    proc = subprocess.run(
+        [
+            rekal_bin(),
+            "--db",
+            str(seed),
+            "recall",
+            "--project",
+            repo,
+            "--query",
+            query,
+            "--format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        memories = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        memories = []
+    if not isinstance(memories, list):
+        memories = []
+    return memories, len(proc.stdout)
+
+
+def rank_of_pair(memories: list[dict], pair: str) -> int:
+    """1-based rank of the first recalled memory tagged with `pair`, else 0.
+
+    `learn` tags every stored memory with its pair name first (brief and
+    gotchas alike), so a correct recall surfaces a memory carrying the
+    question's own pair tag. This is the offline correctness signal."""
+    for i, m in enumerate(memories, start=1):
+        if pair in (m.get("tags") or []):
+            return i
+    return 0
+
+
 @app.command()
 def probe(repo: str) -> None:
     """Offline ($0): how many memories the frozen seed DB recalls per question.
@@ -1327,34 +1379,68 @@ def probe(repo: str) -> None:
     blind = 0
     for q in qs:
         for role in Role:
-            proc = subprocess.run(
-                [
-                    rekal_bin(),
-                    "--db",
-                    str(seed),
-                    "recall",
-                    "--project",
-                    repo,
-                    "--query",
-                    q[role],
-                    "--format",
-                    "json",
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            try:
-                memories = json.loads(proc.stdout)
-            except json.JSONDecodeError:
-                memories = []
+            memories, payload = recall_json(seed, repo, q[role])
             n = len(memories)
-            payload = len(proc.stdout)
             blind += n == 0
             marker = "  <-- BLIND" if n == 0 else ""
             print(f"  {q['pair']:<22} {role:<8} {n:>2} memories  {payload:>6}B{marker}")
     total_qs = len(qs) * len(list(Role))
     print(f"\n{total_qs - blind}/{total_qs} questions have memory to use ({blind} blind)")
+
+
+@app.command(name="eval")
+def retrieval_eval(
+    repo: str,
+    *,
+    min_hit1: float = typer.Option(0.5, help="fail if mean hit@1 falls below this floor"),
+) -> None:
+    """Offline ($0): score whether the frozen seed recalls the RIGHT subsystem.
+
+    Tier 1, the default gate. For each question a recall is 'correct' when a
+    returned memory carries the question's own pair tag (`learn` tags every
+    memory with its pair). Reports per question:
+
+    - rank: 1-based rank of the first right-subsystem hit ('-' if none)
+    - hit@1: 1 when the TOP result is the right subsystem
+    - mrr: reciprocal of that rank (0 when no hit)
+    - top: relevance of the top result
+
+    Then prints pooled hit@1 / MRR / blind and a PASS/FAIL against --min-hit1,
+    exiting nonzero on FAIL so CI can catch a retrieval regression for $0.
+    """
+    seed = seed_db(repo)
+    state, count = seed_status(seed)
+    if state != "ok":
+        sys.exit(f"seed DB {state} -- run `learn {repo}` first")
+    qs = load_questions(repo)
+    print(f"\n{repo}: eval {seed.name} ({count} memories)\n")
+    print(f"  {'pair':<22} {'role':<8} {'rank':>4} {'hit@1':>6} {'mrr':>5} {'top':>6}")
+    hits: list[int] = []
+    rrs: list[float] = []
+    blind = 0
+    for q in qs:
+        for role in Role:
+            memories, _payload = recall_json(seed, repo, q[role])
+            rank = rank_of_pair(memories, q["pair"])
+            hit1 = 1 if rank == 1 else 0
+            rr = 1.0 / rank if rank else 0.0
+            blind += not memories
+            hits.append(hit1)
+            rrs.append(rr)
+            top = memories[0].get("relevance") if memories else None
+            top_s = f"{top:.3f}" if isinstance(top, (int, float)) else "-"
+            rank_s = str(rank) if rank else "-"
+            print(f"  {q['pair']:<22} {role:<8} {rank_s:>4} {hit1:>6} {rr:>5.2f} {top_s:>6}")
+    mean_hit1 = statistics.mean(hits) if hits else 0.0
+    mean_mrr = statistics.mean(rrs) if rrs else 0.0
+    total = len(hits)
+    verdict = "PASS" if mean_hit1 >= min_hit1 else "FAIL"
+    print(
+        f"\n{repo}: hit@1={mean_hit1:.2f} mrr={mean_mrr:.2f} "
+        f"blind={blind}/{total} -- {verdict} (floor {min_hit1:.2f})"
+    )
+    if verdict == "FAIL":
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -1388,6 +1474,40 @@ def pipeline(
             print(f"pipeline: reusing frozen seed DB ({count} memories); --relearn to rebuild")
     run(repo, n=n, arms=arms, roles=roles, pairs=pairs, resume=resume, accept_regime=accept_regime)
     judge(repo, resume=resume)
+    aggregate(repo)
+
+
+# Tier 2 smoke defaults: the smallest paid slice that still exercises the whole
+# run -> judge -> aggregate path. One pair, seed role only, cold vs warm-seed,
+# N=1 = two paid agent runs + two grades — a spot-check, not the full matrix.
+SMOKE_ARMS = (Arm.COLD, Arm.WARM_SEED)
+
+
+@app.command()
+def smoke(
+    repo: str,
+    *,
+    pair: str | None = typer.Option(None, help="pair to smoke (default: first in questions)"),
+    relearn: bool = typer.Option(False, help="rebuild the seed DB even if one exists"),
+) -> None:
+    """Tiny paid spot-check ($): one pair, seed role, cold vs warm-seed, N=1.
+
+    The cheap rung between the free `eval` gate and the full `pipeline`. Builds
+    the seed DB if missing (like `pipeline`), then runs the smallest slice that
+    still proves the live-agent path end to end. The aggregate verdict is the
+    exit code — nonzero means rekal did not clearly win on this slice.
+    """
+    state, count = seed_status(seed_db(repo))
+    if relearn or state != "ok":
+        reason = "--relearn" if relearn else f"seed DB {state}"
+        print(f"smoke: running learn first ({reason})")
+        learn(repo)
+    else:
+        print(f"smoke: reusing frozen seed DB ({count} memories); --relearn to rebuild")
+    target = pair or load_questions(repo)[0]["pair"]
+    arms = ",".join(SMOKE_ARMS)
+    run(repo, n=1, arms=arms, roles=Role.SEED, pairs=target)
+    judge(repo)
     aggregate(repo)
 
 

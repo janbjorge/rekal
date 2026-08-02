@@ -22,6 +22,32 @@ to displace. Fame beats size.)
 - **Wrong prior** (fastapi): pinned checkout is modified vs upstream;
   training data is actively misleading.
 
+## Cost tiers
+
+The paid A/B matrix below is the gold standard but it is expensive: every
+cell is a full live agent session, so the whole matrix is ~1,440 paid runs
+plus a grading pass (~$120-140/repo). Running that on every change is not
+sustainable, so measurement is split into two tiers with very different
+costs, and day-to-day work lives in Tier 1.
+
+- **Tier 1 — retrieval quality, $0 (`eval`).** Given a frozen seed DB, does
+  recall surface the *right subsystem* for each question? A hit is when a
+  returned memory carries the question's own pair tag (`learn` tags every
+  memory with its pair name). Reported as hit@1 and MRR, with a PASS/FAIL
+  floor so it gates like a test. This is offline, deterministic, and needs
+  no auth — it catches the failure mode that silently poisons every warm
+  run (recall returning nothing / the wrong subsystem) before a cent is
+  spent. It does NOT prove a live agent gets cheaper; it proves memory
+  *could* help.
+- **Tier 2 — cost displacement, paid.** Only a live agent can show tokens
+  and reads were actually skipped. `smoke` runs the smallest such slice
+  (one pair, seed role, cold vs warm-seed, N=1) as a spot-check; `pipeline`
+  runs the full matrix for the headline number. Reach for these rarely.
+
+The two tiers are complementary: Tier 1 says the memory is *findable*, Tier
+2 says finding it *pays*. A Tier 1 regression almost always explains a Tier
+2 loss, and catching it in Tier 1 is free.
+
 ## Repos (pinned, shallow clones under repos/)
 
 | repo      | commit     | notes                                |

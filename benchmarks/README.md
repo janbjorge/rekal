@@ -7,6 +7,23 @@ by recalling what a prior session already learned instead of re-exploring.
 See [DESIGN.md](DESIGN.md) for the experiment rationale (theses, arms,
 question design, confounds). This file is how to run it.
 
+## Two tiers, by cost
+
+A full agent A/B matrix is expensive: every cell is a live Claude Code
+session, and the full run is ~1,440 paid runs plus grading (~$120-140/repo).
+So the benchmark is split by cost, and you almost always want Tier 1.
+
+| tier | command | cost | proves |
+|------|---------|------|--------|
+| 1    | `eval`  | $0   | frozen memory recalls the RIGHT subsystem (hit@1/MRR) |
+| 2    | `smoke` | ~$   | one live-agent slice really gets cheaper (spot-check) |
+| 2    | `pipeline` | $$$ | full matrix headline: does rekal save money at parity |
+
+Tier 1 needs only a frozen seed DB and runs offline; make it your default
+gate (it exits nonzero on regression, so CI can run it). Tier 2 needs auth
+and spends money — reach for `smoke` to spot-check and `pipeline` only for
+the rare headline number.
+
 ## TL;DR
 
 ```bash
@@ -15,26 +32,23 @@ cd benchmarks
 # 1. clone pinned repos + build the config dir
 uv run bench.py setup
 
-# 2. authenticate the isolated config dir ONCE (see "Auth" below)
-CLAUDE_CONFIG_DIR="$PWD/config/warm" claude   # then /login, then quit
-
-# 3. build each repo's frozen seed DB (the one pass that WRITES memory)
+# 2. build a repo's frozen seed DB (the one pass that WRITES memory; paid)
 uv run bench.py learn tinygrad
 
-# 4. run the 3-arm matrix (cold / warm-empty / warm-seed), N=3 each
-uv run bench.py run tinygrad
+# --- Tier 1: free, run this constantly -------------------------------------
+# score whether recall surfaces the right subsystem (hit@1 / MRR); $0
+uv run bench.py eval tinygrad
 
-# 5. grade every answer 0-2 against the real source (quality parity)
-uv run bench.py judge tinygrad
-#    smoke a slice without overwriting the full matrix:
-#    uv run bench.py judge tinygrad --pairs foo --limit 6 \
-#      --out results/tinygrad.judge-smoke.jsonl
+# --- Tier 2: paid, run rarely ----------------------------------------------
+# authenticate the isolated config dir ONCE (see "Auth" below)
+CLAUDE_CONFIG_DIR="$PWD/config/warm" claude   # then /login, then quit
 
-# 6. print median tokens + overhead/benefit/net decomposition
-uv run bench.py aggregate tinygrad
+# cheap spot-check: 1 pair, seed role, cold vs warm-seed, N=1
+uv run bench.py smoke tinygrad
+
+# full headline matrix (run -> judge -> aggregate), expensive
+uv run bench.py pipeline tinygrad
 ```
-
-Repeat steps 3-6 per repo: `tinygrad`, `pytorch`, `fastapi`, `pydantic`.
 
 Bare `uv run bench.py` prints help. The script is a standalone
 [PEP 723](https://peps.python.org/pep-0723/) `uv` script: `uv` fetches its
@@ -75,14 +89,29 @@ store tool exists to waste turns on) + the UserPromptSubmit recall hook.
 
 ## Commands
 
-| command             | does                                                        |
-|---------------------|-------------------------------------------------------------|
-| `setup`             | clone all pinned repos, make dirs, write config/warm        |
-| `learn REPO`        | fresh seed DB -> answer seed Qs store-on -> freeze read-only  |
-| `run REPO`          | run every question x arm x N, append `results/REPO.jsonl`   |
-| `judge REPO`        | grade each answer 0-2 vs source -> `results/REPO.judged.jsonl` |
-|                     | filters (`--pairs/--roles/--arms/--limit`) require `--out`     |
-| `aggregate REPO`    | median tables + overhead/benefit/net + quality parity       |
+| command             | tier | does                                                        |
+|---------------------|------|-------------------------------------------------------------|
+| `setup`             | -    | clone all pinned repos, make dirs, write config/warm        |
+| `learn REPO`        | $    | fresh seed DB -> answer seed Qs store-on -> freeze read-only  |
+| `probe REPO`        | $0   | how many memories recall returns per question (raw count)   |
+| `eval REPO`         | $0   | score right-subsystem recall: hit@1 / MRR / blind, PASS/FAIL |
+| `smoke REPO`        | $    | tiny paid slice: 1 pair, seed role, cold vs warm-seed, N=1  |
+| `run REPO`          | $$$  | run every question x arm x N, append `results/REPO.jsonl`   |
+| `judge REPO`        | $$   | grade each answer 0-2 vs source -> `results/REPO.judged.jsonl` |
+|                     |      | filters (`--pairs/--roles/--arms/--limit`) require `--out`     |
+| `aggregate REPO`    | $0   | median tables + overhead/benefit/net + quality parity       |
+| `pipeline REPO`     | $$$  | learn if needed -> run -> judge -> aggregate (full matrix)     |
+
+`eval REPO` is the default gate: it recalls each question against the frozen
+seed and scores a hit when a returned memory carries the question's own pair
+tag (`learn` tags every memory with its pair). It prints per-question rank /
+hit@1 / MRR plus pooled numbers, and exits nonzero when mean hit@1 drops
+below `--min-hit1` (default 0.5) — a $0 retrieval-regression guard.
+
+`smoke REPO` is the cheapest paid check: it builds the seed if missing, then
+runs the smallest slice that still exercises run -> judge -> aggregate end to
+end (`--pair` picks which pair; default is the first). The aggregate verdict
+is its exit code.
 
 `run` options: `--n 3` (runs per question/arm), `--arms cold,warm-empty,warm-seed`,
 `--roles seed,heldout`. Unknown arm/role values are rejected up front.

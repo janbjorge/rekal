@@ -16,6 +16,11 @@ improved pooled median cost.
 This is a calibrated default, not an uncalibrated placeholder. Revisit it
 after the benchmark matrix covers more repositories.
 
+The offline `eval` command (Tier 1) is the cheap standing signal for this
+recalibration: it scores right-subsystem recall (hit@1 / MRR) per repo for
+$0, so a floor's effect on retrieval can be watched continuously without
+rerunning the paid matrix.
+
 ## Method
 
 For every `(repo, pair, role)`:
