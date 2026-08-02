@@ -6,7 +6,7 @@ rekal is an [MCP](https://modelcontextprotocol.io) server that gives AI coding a
 
 [How it works](#how-it-works) · [Quickstart](#quickstart-claude-code) · [Install](#install) · [Setup](#setup-for-claude-code) · [Updating](#updating) · [Tools](#tools) · [Under the hood](#under-the-hood) · [Troubleshooting](#troubleshooting-for-claude-code)
 
-Works with any MCP-capable agent: [Claude Code](#setup-for-claude-code), [Codex CLI](#setup-for-codex-cli), [OpenCode](#setup-for-opencode).
+Works with any MCP-capable agent: [Claude Code](#setup-for-claude-code), [Codex CLI](#setup-for-codex-cli), [OpenCode](#setup-for-opencode), [Cursor CLI](#setup-for-cursor-cli).
 
 ```
 Session 1:   "I prefer Ruff over Black"  → memory_store(...)
@@ -181,6 +181,39 @@ OpenCode does **not** auto-read `AGENTS.md`; you must list instruction files exp
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["AGENTS.md"]
 }
+```
+
+## Setup for Cursor CLI
+
+One step. rekal is a standard MCP stdio server, and Cursor has no competing memory to disable. The CLI shares the editor's MCP config, so this also enables rekal in the Cursor editor ([Cursor CLI MCP docs](https://cursor.com/docs/cli/mcp)).
+
+Add to `~/.cursor/mcp.json` (global, all projects) or `.cursor/mcp.json` (project-only) ([Cursor MCP docs](https://cursor.com/docs/mcp)):
+
+```json
+{
+  "mcpServers": {
+    "rekal": {
+      "command": "rekal",
+      "args": ["mcp"],
+      "env": {
+        "REKAL_PROJECT": "my-project"
+      }
+    }
+  }
+}
+```
+
+The `env` block is optional; drop it for global (unscoped) memory. Then enable and verify:
+
+```bash
+agent mcp enable rekal
+agent mcp list
+```
+
+Instruct the agent to call `memory_build_context` at session start. Add to your project's `AGENTS.md`:
+
+```markdown
+Call memory_build_context with your current task before exploring the codebase.
 ```
 
 ## Updating
