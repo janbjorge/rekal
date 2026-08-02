@@ -6,10 +6,10 @@ import os
 import tempfile
 from pathlib import Path
 
+from rekal.adapters.app_context import AppContext
 from rekal.adapters.mcp_adapter import (
     INSTRUCTIONS,
     RECALL_INSTRUCTIONS,
-    AppContext,
     create_server,
     lifespan,
 )

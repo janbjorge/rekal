@@ -1,6 +1,6 @@
 """Filesystem paths and ``.rekal/config.yml`` loading, with no MCP dependencies.
 
-Kept free of the FastMCP server so lightweight entry points (notably the
+Kept free of the MCPServer so lightweight entry points (notably the
 ``rekal recall`` CLI on the per-turn hook hot path) can resolve the DB path
 and scoring config without importing or constructing the MCP server.
 """

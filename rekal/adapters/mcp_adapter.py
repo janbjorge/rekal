@@ -1,38 +1,31 @@
-"""FastMCP server factory, lifespan, and DB initialization."""
+"""MCPServer factory, lifespan, and DB initialization."""
 
 from __future__ import annotations
 
 import os
 import sys
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
+from rekal.adapters.app_context import AppContext
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.adapters.tools import register
 
 # Re-exported: path/config helpers live in rekal.config (MCP-free) so the
-# recall CLI can use them without importing this module's FastMCP server.
+# recall CLI can use them without importing this module's MCPServer.
 from rekal.config import default_db_path, find_config_file, load_file_config, resolve_readonly
 from rekal.embeddings import FastEmbedder
-from rekal.scoring import ScoringWeights, resolve_weights
+from rekal.scoring import resolve_weights
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
-@dataclass
-class AppContext:
-    db: SqliteDatabase | None
-    default_project: str | None = None
-    weights: ScoringWeights = field(default_factory=ScoringWeights)
-
-
 @asynccontextmanager
-async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
+async def lifespan(_server: MCPServer[AppContext]) -> AsyncIterator[AppContext]:
     """Open the DB for the server's lifetime; never fail the server on a bad DB.
 
     A lifespan crash is invisible to the model — every tool call just errors
@@ -97,15 +90,15 @@ missing and you need prior knowledge, and never attempt to store.
 """
 
 
-def create_server() -> FastMCP:
-    """Build the FastMCP server with the tool surface for this process.
+def create_server() -> MCPServer[AppContext]:
+    """Build the MCPServer with the tool surface for this process.
 
     ``REKAL_READONLY=1`` registers recall only and swaps in instructions with
     no store nudges — e.g. for measured benchmark runs, where a store attempt
     would burn a turn just to be denied.
     """
     readonly = os.environ.get("REKAL_READONLY") == "1"
-    server = FastMCP(
+    server = MCPServer(
         "rekal",
         instructions=RECALL_INSTRUCTIONS if readonly else INSTRUCTIONS,
         lifespan=lifespan,

@@ -27,7 +27,7 @@ MCP Client
 
 - `SqliteDatabase` is a `@dataclass` holding the `aiosqlite.Connection` and ALL query methods. Every SQL statement lives here. No SQL in tool files.
 - `tools/core.py` holds the tool functions as plain async functions plus `register(mcp, readonly=...)`, which attaches them to a server. `REKAL_READONLY=1` registers recall only.
-- `mcp_adapter.py` exposes `create_server()`: builds the FastMCP server with the right instructions, manages lifespan, and calls `register`.
+- `mcp_adapter.py` exposes `create_server()`: builds the MCPServer with the right instructions, manages lifespan, and calls `register`.
 - The MCP surface is deliberately minimal (3 tools). Admin operations (health, export, prune, recall) belong in the CLI (`rekal/__main__.py`), not new MCP tools.
 - **No dynamic SQL.** SQL strings must be static literals. No f-strings, no string concatenation, no `%` formatting to build queries. Use subqueries and parameterized `?` placeholders instead.
 
@@ -163,7 +163,7 @@ pytest --cov=rekal --cov-report=term-missing --cov-fail-under=100 tests/
 
 ## Dependencies
 
-- `mcp[cli]`: FastMCP framework
+- `mcp[cli]`: MCP Python SDK (MCPServer)
 - `aiosqlite`: async SQLite
 - `sqlite-vec`: vector search extension
 - `fastembed`: ONNX embeddings (lazy-loaded)

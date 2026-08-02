@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import cast
 
 import pytest
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
-from rekal.adapters.mcp_adapter import AppContext
+from rekal.adapters.app_context import AppContext
 from rekal.adapters.sqlite_adapter import SqliteDatabase
 from rekal.adapters.tools.core import memory_build_context, memory_delete, memory_store
 from rekal.models import CompactMemory
@@ -29,11 +29,11 @@ def _ctx(
     db: SqliteDatabase,
     weights: ScoringWeights | None = None,
     default_project: str | None = None,
-) -> Context:
+) -> Context[AppContext, object]:
     # Structurally what the tools read from a real Context; cast keeps the
-    # tool signatures honest (FastMCP injects Context by annotation).
+    # tool signatures honest (MCPServer injects Context by annotation).
     return cast(
-        "Context",
+        "Context[AppContext, object]",
         FakeContext(
             request_context=FakeRequestContext(
                 lifespan_context=AppContext(
