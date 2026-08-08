@@ -1,12 +1,12 @@
 {
-  "description": "rekal deterministic memory: inject real recall on session start + each turn, auto-persist before compaction and at session end, and redirect file-based memory to rekal",
+  "description": "rekal deterministic memory: inject real recall on session start + each turn, auto-persist before compaction and at session end, and redirect file-based memory to rekal. The env lives in ${CLAUDE_PLUGIN_DATA}/venv (survives plugin updates); SessionStart syncs it only when uv.lock changed, every other hook runs --no-sync so the hot path never resolves or touches the network.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook session-start"
+            "command": "{ diff -q \"${CLAUDE_PLUGIN_ROOT}/uv.lock\" \"${CLAUDE_PLUGIN_DATA}/uv.lock\" >/dev/null 2>&1 || { UV_PROJECT_ENVIRONMENT=\"${CLAUDE_PLUGIN_DATA}/venv\" uv sync --frozen --quiet --project \"${CLAUDE_PLUGIN_ROOT}\" && cp \"${CLAUDE_PLUGIN_ROOT}/uv.lock\" \"${CLAUDE_PLUGIN_DATA}/uv.lock\"; } || { rm -f \"${CLAUDE_PLUGIN_DATA}/uv.lock\"; exit 0; }; } && UV_PROJECT_ENVIRONMENT=\"${CLAUDE_PLUGIN_DATA}/venv\" uv run --frozen --no-sync --project \"${CLAUDE_PLUGIN_ROOT}\" rekal hook session-start"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook user-prompt-submit"
+            "command": "UV_PROJECT_ENVIRONMENT=\"${CLAUDE_PLUGIN_DATA}/venv\" uv run --frozen --no-sync --project \"${CLAUDE_PLUGIN_ROOT}\" rekal hook user-prompt-submit"
           }
         ]
       }
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook block-memory-writes"
+            "command": "UV_PROJECT_ENVIRONMENT=\"${CLAUDE_PLUGIN_DATA}/venv\" uv run --frozen --no-sync --project \"${CLAUDE_PLUGIN_ROOT}\" rekal hook block-memory-writes"
           }
         ],
         "matcher": "Edit|Write"
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT} rekal hook redirect-memory-reads"
+            "command": "UV_PROJECT_ENVIRONMENT=\"${CLAUDE_PLUGIN_DATA}/venv\" uv run --frozen --no-sync --project \"${CLAUDE_PLUGIN_ROOT}\" rekal hook redirect-memory-reads"
           }
         ],
         "matcher": "Read"
