@@ -41,6 +41,9 @@ rekal = "rekal.__main__:main"
 
 [tool.hatch.version]
 source = "vcs"
+# Claude Code copies the plugin into its cache without .git; the hooks'
+# `uv sync` builds rekal from that copy, so a VCS-less build must not fail.
+raw-options = { fallback_version = "0.0.0" }
 
 [tool.hatch.build.hooks.vcs]
 version-file = "rekal/_version.py"
