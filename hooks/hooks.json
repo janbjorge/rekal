@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uvx --from rekal==3.2.0 rekal hook session-start"
+            "command": "uvx --from rekal==3.3.0 rekal hook session-start"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uvx --from rekal==3.2.0 rekal hook user-prompt-submit"
+            "command": "uvx --from rekal==3.3.0 rekal hook user-prompt-submit"
           }
         ]
       }
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uvx --from rekal==3.2.0 rekal hook block-memory-writes"
+            "command": "uvx --from rekal==3.3.0 rekal hook block-memory-writes"
           }
         ],
         "matcher": "Edit|Write"
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uvx --from rekal==3.2.0 rekal hook redirect-memory-reads"
+            "command": "uvx --from rekal==3.3.0 rekal hook redirect-memory-reads"
           }
         ],
         "matcher": "Read"

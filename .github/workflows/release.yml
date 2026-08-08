@@ -15,8 +15,23 @@ jobs:
     permissions:
       contents: read
 
+  # The plugin hooks run `uvx --from rekal==<pin>`; a release whose tag differs
+  # from the pin ships hooks that run a different version than the one being
+  # published. Refuse to release until the pin is bumped in the same commit.
+  hook-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pins=$(grep -o 'rekal==[0-9][0-9a-z.]*' hooks/hooks.json | sort -u)
+          if [ "$pins" != "rekal==$tag" ]; then
+            echo "::error::hooks/hooks.json pins '$pins' but the tag releases v$tag — bump the pin before tagging"
+            exit 1
+          fi
+
   build:
-    needs: ci
+    needs: [ci, hook-pin]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
